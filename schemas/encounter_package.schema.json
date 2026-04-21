@@ -1,0 +1,300 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "EncounterPackage",
+  "description": "Schema for the MVP clinician workflow: upload treatment note, detect suggested treatments, interact with a live chatbot to map treatments to CPT codes or draft justifications, apply/edit/delete recommendations, and confirm the final handoff document before CMS-1500 preparation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "encounter_id",
+    "date_of_service",
+    "patient_id",
+    "clinician_id",
+    "source_documents",
+    "suggested_treatments",
+    "chat_session",
+    "final_output_document",
+    "submission_state"
+  ],
+  "definitions": {
+    "evidenceReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_type", "document_id"],
+      "properties": {
+        "source_type": {
+          "type": "string",
+          "enum": [
+            "uploaded_treatment_note",
+            "backend_clinical_note",
+            "backend_lab_result",
+            "backend_imaging_report",
+            "backend_questionnaire",
+            "backend_prior_visit_note",
+            "backend_treatment_plan",
+            "chat_input",
+            "agent_generated"
+          ]
+        },
+        "document_id": {"type": "string"},
+        "section_ref": {"type": "string"},
+        "text_span": {"type": "string"},
+        "captured_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "structuredBullet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["section", "content"],
+      "properties": {
+        "section": {
+          "type": "string",
+          "enum": [
+            "patient_condition",
+            "functional_limitation",
+            "objective_findings",
+            "prior_treatment_history",
+            "treatment_provided",
+            "medical_necessity",
+            "missing_documentation",
+            "other"
+          ]
+        },
+        "label": {"type": "string"},
+        "content": {"type": "string"},
+        "source_evidence": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/evidenceReference"}
+        },
+        "confidence_score": {"type": "number", "minimum": 0, "maximum": 1},
+        "is_user_edited": {"type": "boolean", "default": false}
+      }
+    },
+    "recommendationOption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["recommendation_id", "recommendation_type", "content", "rank", "explainability_score"],
+      "properties": {
+        "recommendation_id": {"type": "string"},
+        "recommendation_type": {
+          "type": "string",
+          "enum": ["cpt_mapping", "justification_draft", "follow_up_answer", "polish_rewrite"]
+        },
+        "content": {"type": "string"},
+        "structured_bullets": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/structuredBullet"}
+        },
+        "linked_treatment_id": {"type": "string"},
+        "linked_cpt_code": {"type": "string"},
+        "rank": {"type": "integer", "minimum": 1},
+        "explainability_score": {"type": "number", "minimum": 0, "maximum": 1},
+        "confidence_score": {"type": "number", "minimum": 0, "maximum": 1},
+        "rationale": {"type": "string"},
+        "source_evidence": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/evidenceReference"}
+        },
+        "status": {
+          "type": "string",
+          "enum": ["suggested", "applied", "edited", "deleted", "rejected"],
+          "default": "suggested"
+        }
+      }
+    },
+    "editEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event_id", "event_type", "timestamp"],
+      "properties": {
+        "event_id": {"type": "string"},
+        "event_type": {
+          "type": "string",
+          "enum": [
+            "apply_recommendation",
+            "edit_recommendation",
+            "delete_recommendation",
+            "manual_text_edit",
+            "select_treatment",
+            "select_chat_mode",
+            "submit_follow_up_question",
+            "confirm_final_review"
+          ]
+        },
+        "recommendation_id": {"type": "string"},
+        "treatment_id": {"type": "string"},
+        "before_text": {"type": "string"},
+        "after_text": {"type": "string"},
+        "timestamp": {"type": "string", "format": "date-time"},
+        "captured_by_agent": {"type": "boolean", "default": true}
+      }
+    },
+    "chatMessage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message_id", "role", "content", "timestamp"],
+      "properties": {
+        "message_id": {"type": "string"},
+        "role": {
+          "type": "string",
+          "enum": ["clinician", "agent", "system"]
+        },
+        "content": {"type": "string"},
+        "timestamp": {"type": "string", "format": "date-time"},
+        "intent": {
+          "type": "string",
+          "enum": [
+            "select_treatment",
+            "request_cpt_mapping",
+            "request_justification_draft",
+            "ask_follow_up",
+            "request_polish",
+            "confirm_review",
+            "other"
+          ]
+        },
+        "linked_treatment_id": {"type": "string"},
+        "linked_cpt_code": {"type": "string"}
+      }
+    }
+  },
+  "properties": {
+    "encounter_id": {"type": "string"},
+    "patient_id": {"type": "string"},
+    "clinician_id": {"type": "string"},
+    "date_of_service": {"type": "string", "format": "date"},
+    "source_documents": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uploaded_treatment_note", "backend_document_ids"],
+      "properties": {
+        "uploaded_treatment_note": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["document_id", "file_name", "uploaded_at"],
+          "properties": {
+            "document_id": {"type": "string"},
+            "file_name": {"type": "string"},
+            "uploaded_at": {"type": "string", "format": "date-time"},
+            "parsed_text": {"type": "string"}
+          }
+        },
+        "backend_document_ids": {
+          "type": "array",
+          "description": "Patient-related documents already stored in the backend and available to the agents.",
+          "items": {"type": "string"}
+        }
+      }
+    },
+    "suggested_treatments": {
+      "type": "array",
+      "description": "All treatments detected from the uploaded treatment note and supporting backend documents.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["treatment_id", "treatment_name", "detection_status", "selection_state"],
+        "properties": {
+          "treatment_id": {"type": "string"},
+          "treatment_name": {"type": "string"},
+          "treatment_description": {"type": "string"},
+          "detection_status": {
+            "type": "string",
+            "enum": ["detected", "reviewed", "confirmed", "dismissed"]
+          },
+          "selection_state": {
+            "type": "string",
+            "enum": ["unselected", "selected", "completed"]
+          },
+          "source_evidence": {
+            "type": "array",
+            "items": {"$ref": "#/definitions/evidenceReference"}
+          },
+          "potential_cpt_codes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["code", "label"],
+              "properties": {
+                "code": {"type": "string"},
+                "label": {"type": "string"},
+                "confidence_score": {"type": "number", "minimum": 0, "maximum": 1}
+              }
+            }
+          },
+          "recommendations": {
+            "type": "array",
+            "description": "Ranked agent responses that clinicians can select and apply.",
+            "items": {"$ref": "#/definitions/recommendationOption"}
+          }
+        }
+      }
+    },
+    "chat_session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["session_id", "messages", "interaction_mode", "activity_log"],
+      "properties": {
+        "session_id": {"type": "string"},
+        "is_live": {"type": "boolean", "default": true},
+        "interaction_mode": {
+          "type": "string",
+          "description": "Chosen after treatment selection.",
+          "enum": ["cpt_mapping_help", "justification_help", "mixed"]
+        },
+        "messages": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/chatMessage"}
+        },
+        "activity_log": {
+          "type": "array",
+          "description": "All apply/edit/delete actions captured by the agent before the next clinician question.",
+          "items": {"$ref": "#/definitions/editEvent"}
+        },
+        "supports_follow_up_questions": {"type": "boolean", "default": true},
+        "supports_inline_polish_requests": {"type": "boolean", "default": true}
+      }
+    },
+    "final_output_document": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["document_id", "sections", "all_required_fields_complete"],
+      "properties": {
+        "document_id": {"type": "string"},
+        "sections": {
+          "type": "array",
+          "description": "Fill-out document sent to the downstream team preparing CMS-1500 forms.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["section_id", "label", "is_required", "is_filled"],
+            "properties": {
+              "section_id": {"type": "string"},
+              "label": {"type": "string"},
+              "content": {"type": "string"},
+              "linked_recommendation_id": {"type": "string"},
+              "is_required": {"type": "boolean"},
+              "is_filled": {"type": "boolean"},
+              "is_user_editable": {"type": "boolean", "default": true}
+            }
+          }
+        },
+        "all_required_fields_complete": {"type": "boolean"},
+        "review_ready": {"type": "boolean"},
+        "confirm_button_enabled": {"type": "boolean"}
+      }
+    },
+    "submission_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["draft", "ready_for_review", "confirmed", "submitted_to_claim_prep_team"]
+        },
+        "confirmed_at": {"type": "string", "format": "date-time"},
+        "confirmed_by": {"type": "string"}
+      }
+    }
+  }
+}
