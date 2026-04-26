@@ -1,0 +1,74 @@
+OUTPATIENT PHYSICAL THERAPY NOTE
+Date of Service: 2026-04-20
+Patient: Robert Nguyen | DOB: 1955-11-02 | MRN: 00198734
+Clinician: Dr. Mark Torres, PT, DPT, OCS
+Visit Type: Initial Evaluation
+
+CHIEF COMPLAINT:
+Patient presents with right knee pain rated 7/10 on the Numeric Pain Rating Scale (NPRS),
+described as deep, aching, and constant, with sharp exacerbations during stair negotiation
+and prolonged standing. Patient reports morning stiffness lasting approximately 30 minutes.
+
+DIAGNOSIS:
+Right knee osteoarthritis — ICD-10: M17.11 (Primary osteoarthritis, right knee)
+
+HISTORY OF PRESENT ILLNESS:
+Mr. Nguyen is a 70-year-old retired postal worker with a 4-year history of progressive right
+knee pain. Symptoms have worsened over the past 6 months to the point of functional
+limitation. He was evaluated by orthopedics 3 weeks ago; X-ray confirmed moderate-to-severe
+joint space narrowing at the medial compartment with osteophyte formation. Orthopedist
+deferred surgical intervention and referred to physical therapy for conservative management.
+Prior treatment: NSAIDs (naproxen 500 mg BID) with partial relief, cortisone injection
+6 months ago with temporary improvement (approximately 8 weeks). No prior physical therapy
+for this condition. Patient reports activity-limiting pain with walking >1 block,
+ascending/descending stairs, and rising from a chair.
+
+OBJECTIVE FINDINGS:
+- Right knee ROM: flexion 95° (limited, nl 135°), extension -8° (flexion contracture, nl 0°)
+- Left knee ROM: flexion 128°, extension 0° (within normal limits)
+- Strength testing (right): quadriceps 3+/5, hamstrings 4/5, hip abductors 4-/5
+- Strength testing (left): quadriceps 4+/5, hamstrings 4+/5
+- Special tests: positive patellar grind, positive valgus stress test (medial laxity grade I)
+- Palpation: tenderness at medial joint line and patellar tendon insertion
+- Gait: antalgic gait pattern right, decreased right stance phase, Trendelenburg sign noted
+- Functional: 30-second sit-to-stand test: 6 repetitions (norm for age/sex: ≥12)
+- Edema: 1+ pitting edema circumferentially at right knee
+
+FUNCTIONAL LIMITATIONS:
+Patient is unable to walk more than one city block without rest secondary to pain and fatigue.
+He is unable to climb stairs without use of a railing and reports only 1 flight maximum.
+Unable to rise from a standard chair without upper extremity assist. Patient is retired but
+reports inability to perform yard work, grocery shopping, and recreational walking with spouse.
+Patient lives in a two-story home; bedroom is upstairs.
+
+TREATMENT PROVIDED TODAY (75 minutes):
+1. Therapeutic exercise — quad sets, straight leg raises, short arc quads, terminal knee
+   extension with band; 3 sets x 15 reps each (20 min)
+2. Manual therapy — patellar mobilization (inferior and medial glides, grades III-IV),
+   tibiofemoral joint mobilization grades II-III (15 min)
+3. Neuromuscular re-education — weight-shifting, single-leg stance progression,
+   step-up training 4-inch step (15 min)
+4. Therapeutic activities — sit-to-stand training, stair negotiation practice (10 min)
+5. Cryotherapy — ice pack to right knee post-exercise (15 min)
+
+RESPONSE TO TREATMENT:
+Patient tolerated treatment well with mild post-exercise soreness. NPRS improved from 7/10
+to 5/10 by end of session. Patient demonstrated improved sit-to-stand mechanics with verbal
+and tactile cueing. Right knee flexion improved to 100° following joint mobilization.
+
+ASSESSMENT:
+Patient presents with significant functional deficits consistent with moderate-to-severe knee
+osteoarthritis. Prognosis for functional improvement with skilled PT is fair given severity of
+structural changes, however meaningful gains in strength, ROM, and functional mobility are
+anticipated with consistent participation. Patient is motivated and engaged.
+
+PLAN:
+Plan of care: 3x/week for 6 weeks (18 visits total).
+Short-term goals (3 weeks): Right knee flexion to 110°, quadriceps strength 4/5,
+  sit-to-stand ≥10 reps in 30 seconds, ambulation 3 blocks without rest, NPRS ≤4/10.
+Long-term goals (6 weeks): Right knee flexion to 120°, independent home exercise program,
+  stair negotiation without railing assist, NPRS ≤2/10 with functional activities.
+HEP: Patient educated on quad sets and straight leg raises to perform 2x daily.
+  Demonstrated correct technique; verbalized understanding.
+Coordination: Orthopedic follow-up in 6 weeks to reassess surgical candidacy based on
+  response to PT.

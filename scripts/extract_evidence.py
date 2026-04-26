@@ -10,6 +10,43 @@ import anthropic
 _client: anthropic.Anthropic | None = None
 
 
+def _parse_json(raw: str) -> Any:
+    raw = raw.strip()
+    if "```" in raw:
+        for part in raw.split("```"):
+            candidate = part.lstrip("json").strip()
+            if candidate.startswith(("{", "[")):
+                raw = candidate
+                break
+    for ch in ("{", "["):
+        idx = raw.find(ch)
+        if idx != -1:
+            raw = raw[idx:]
+            break
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as e:
+        if "Extra data" not in str(e):
+            raise ValueError(f"JSON parse failed: {e}\n\nResponse (first 500 chars):\n{raw[:500]}") from e
+    decoder = json.JSONDecoder()
+    objects: list = []
+    pos = 0
+    while pos < len(raw):
+        remaining = raw[pos:].lstrip()
+        if not remaining:
+            break
+        pos += len(raw[pos:]) - len(remaining)
+        try:
+            obj, end = decoder.raw_decode(remaining)
+            objects.append(obj)
+            pos += end
+        except json.JSONDecodeError:
+            break
+    if objects:
+        return objects[0] if len(objects) == 1 else objects
+    raise ValueError(f"Could not parse JSON from response (first 500 chars):\n{raw[:500]}")
+
+
 def _get_client() -> anthropic.Anthropic:
     global _client
     if _client is None:
@@ -61,17 +98,12 @@ Extract evidence into JSON with this shape:
 
     response = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=2048,
+        max_tokens=4096,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_message}],
     )
 
-    raw = response.content[0].text.strip()
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-    return json.loads(raw)
+    return _parse_json(response.content[0].text)
 
 
 if __name__ == "__main__":

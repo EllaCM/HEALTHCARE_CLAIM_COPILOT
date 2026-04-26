@@ -1,4 +1,6 @@
 .tmp/
+.claude/
+outputs/
 __pycache__/
 *.pyc
 *.pyo

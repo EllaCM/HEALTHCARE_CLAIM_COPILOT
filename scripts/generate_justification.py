@@ -1,4 +1,4 @@
-"""Generate structured bullets and reimbursement justification draft prose."""
+"""Generate per-CPT justifications and overall draft prose in clinician's tone."""
 
 import json
 import os
@@ -10,6 +10,43 @@ import anthropic
 _client: anthropic.Anthropic | None = None
 
 
+def _parse_json(raw: str) -> Any:
+    raw = raw.strip()
+    if "```" in raw:
+        for part in raw.split("```"):
+            candidate = part.lstrip("json").strip()
+            if candidate.startswith(("{", "[")):
+                raw = candidate
+                break
+    for ch in ("{", "["):
+        idx = raw.find(ch)
+        if idx != -1:
+            raw = raw[idx:]
+            break
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as e:
+        if "Extra data" not in str(e):
+            raise ValueError(f"JSON parse failed: {e}\n\nResponse (first 500 chars):\n{raw[:500]}") from e
+    decoder = json.JSONDecoder()
+    objects: list = []
+    pos = 0
+    while pos < len(raw):
+        remaining = raw[pos:].lstrip()
+        if not remaining:
+            break
+        pos += len(raw[pos:]) - len(remaining)
+        try:
+            obj, end = decoder.raw_decode(remaining)
+            objects.append(obj)
+            pos += end
+        except json.JSONDecodeError:
+            break
+    if objects:
+        return objects[0] if len(objects) == 1 else objects
+    raise ValueError(f"Could not parse JSON from response (first 500 chars):\n{raw[:500]}")
+
+
 def _get_client() -> anthropic.Anthropic:
     global _client
     if _client is None:
@@ -17,13 +54,68 @@ def _get_client() -> anthropic.Anthropic:
     return _client
 
 
-SYSTEM_PROMPT = """You are a clinical reimbursement writer for outpatient clinics.
+
+PER_CODE_SYSTEM_PROMPT = """You are a physical therapy clinical documentation specialist.
+Write reimbursement justification text for each CPT code provided.
+Return valid JSON only — an object mapping each CPT code to its justification paragraph.
+
+Rules:
+- Write in first-person clinical tone as the treating therapist.
+- Each justification must directly reference objective findings, functional deficits,
+  and skilled interventions documented in the evidence.
+- Do not invent facts not found in the evidence.
+- Keep each paragraph to 3-5 sentences — concise, reimbursement-ready.
+- Clearly state medical necessity using documented evidence.
+- Do not exaggerate severity or duration beyond what is documented."""
+
+PER_CODE_SCHEMA = {
+    "97110": "Justification paragraph for this code referencing the specific evidence...",
+    "97140": "Justification paragraph for this code...",
+}
+
+
+def generate_per_code_justifications(
+    evidence: dict[str, Any],
+    cpt_codes: list[dict[str, Any]],
+    gap_analysis: dict[str, Any] | None = None,
+) -> dict[str, str]:
+    """Return a dict mapping each CPT code to a clinician-tone justification paragraph."""
+    client = _get_client()
+
+    codes_summary = [
+        {"code": c.get("code"), "label": c.get("label"), "units": c.get("units")}
+        for c in cpt_codes
+    ]
+
+    user_message = f"""## Encounter Evidence
+{json.dumps(evidence, indent=2)}
+
+## CPT Codes to Justify
+{json.dumps(codes_summary, indent=2)}
+
+## Documentation Gap Notes
+{json.dumps(gap_analysis or {}, indent=2)}
+
+Write one justification paragraph per CPT code. Return JSON matching this shape:
+{json.dumps({c.get("code", "XXXXX"): "justification text" for c in cpt_codes}, indent=2)}
+"""
+
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=8192,
+        system=PER_CODE_SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": user_message}],
+    )
+
+    return _parse_json(response.content[0].text)
+
+
+FULL_DRAFT_SYSTEM_PROMPT = """You are a clinical reimbursement writer for outpatient clinics.
 Given structured evidence and a selected code, produce structured bullets and a concise draft paragraph.
 Return valid JSON only.
 Rules:
-- Every bullet must include at least one source_evidence reference with source_type and document_id.
+- Every bullet must include at least one source_evidence reference.
 - Do not add clinical facts not found in the evidence.
-- Do not exaggerate severity, duration, frequency, or medical necessity.
 - If evidence_quality is insufficient, set draft_paragraph to null and populate warnings.
 - section must be one of: patient_condition, functional_limitation, objective_findings,
   prior_treatment_history, treatment_provided, medical_necessity, missing_documentation, other."""
@@ -34,9 +126,7 @@ DRAFT_OUTPUT_SCHEMA = {
             "section": "patient_condition | functional_limitation | objective_findings | prior_treatment_history | treatment_provided | medical_necessity | missing_documentation | other",
             "label": "string",
             "content": "string",
-            "source_evidence": [
-                {"source_type": "string", "document_id": "string", "text_span": "string"}
-            ],
+            "source_evidence": [{"source_type": "string", "document_id": "string", "text_span": "string"}],
             "confidence_score": "number 0-1",
         }
     ],
@@ -46,22 +136,13 @@ DRAFT_OUTPUT_SCHEMA = {
 }
 
 
-def _strip_fences(raw: str) -> str:
-    if raw.startswith("```"):
-        parts = raw.split("```")
-        raw = parts[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-    return raw.strip()
-
-
 def generate_justification(
     evidence: dict[str, Any],
     selected_code: dict[str, Any],
     gap_analysis: dict[str, Any] | None = None,
     clinic_formatting: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Return structured bullets and optional draft prose for the selected code."""
+    """Return structured bullets and optional draft prose for the selected code (legacy full-draft path)."""
     client = _get_client()
 
     user_message = f"""## Extracted Evidence
@@ -83,11 +164,11 @@ Generate structured bullets and a draft paragraph. Return JSON matching this sha
     response = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=8192,
-        system=SYSTEM_PROMPT,
+        system=FULL_DRAFT_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_message}],
     )
 
-    return json.loads(_strip_fences(response.content[0].text))
+    return _parse_json(response.content[0].text)
 
 
 if __name__ == "__main__":

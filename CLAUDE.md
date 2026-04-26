@@ -92,3 +92,11 @@ Make the orchestrator block final draft generation when evidence is too weak, ra
 - edit distance between draft and final approved version
 - documentation-related denial reduction over baseline
 
+## General requirements
+- prioritize edit on top of existing files instead of rewriting the entire file
+- unless the file has been edited, do not repeatedly read the files that have been read.
+- concise output, thorough logic
+
+## Coding requirements
+- each file should not exceed 400 lines. if so, break it down into seperate files.
+- There should be no more than 4 layers within each nested loop
