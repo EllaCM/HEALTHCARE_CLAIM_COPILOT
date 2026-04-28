@@ -6,11 +6,13 @@ from typing import Any
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent.parent))
 
-from scripts.generate_justification import generate_justification
+from scripts.generate_justification import generate_all_justifications
+
+_QUALITY_RANK = {"insufficient": 0, "partial": 1, "strong": 2}
 
 
 class JustificationDraftingAgent:
-    """Produces clinician-reviewable structured bullets and a reimbursement draft."""
+    """Produces per-code structured bullets and draft prose for every ranked CPT code."""
 
     def run(self, encounter_package: dict[str, Any]) -> dict[str, Any]:
         encounter_id = encounter_package.get("encounter_id", "unknown")
@@ -28,22 +30,20 @@ class JustificationDraftingAgent:
         if not evidence:
             raise ValueError(f"[{encounter_id}] No evidence found. Run EncounterEvidenceAgent first.")
 
-        # Select best supportable code
-        selected_code = {}
-        if ranked_codes:
-            top = ranked_codes[0]
-            selected_code = {"code": top.get("code"), "label": top.get("label")}
-
         clinic_formatting = encounter_package.get("_clinic_formatting", {})
-        justification = generate_justification(evidence, selected_code, gap_analysis, clinic_formatting)
+        per_code = generate_all_justifications(evidence, ranked_codes, gap_analysis, clinic_formatting)
 
-        # Fork C: insufficient evidence — draft blocked by the script itself
-        if justification.get("evidence_quality") == "insufficient":
+        qualities = [e.get("evidence_quality", "insufficient") for e in per_code]
+        overall = min(qualities, key=lambda q: _QUALITY_RANK.get(q, 0), default="insufficient")
+
+        # Fork C: block only when every code lacks sufficient evidence
+        if overall == "insufficient":
+            all_warnings = [w for e in per_code for w in e.get("warnings", [])]
             encounter_package["_blocked"] = {
                 "reason": "insufficient_evidence_for_draft",
                 "message": "Evidence quality is insufficient to generate reimbursement prose.",
-                "warnings": justification.get("warnings", []),
+                "warnings": all_warnings,
             }
 
-        encounter_package["_justification"] = justification
+        encounter_package["_justification"] = {"per_code": per_code, "overall_evidence_quality": overall}
         return encounter_package

@@ -120,6 +120,34 @@ Rules:
 - section must be one of: patient_condition, functional_limitation, objective_findings,
   prior_treatment_history, treatment_provided, medical_necessity, missing_documentation, other."""
 
+ALL_CODES_SYSTEM_PROMPT = """You are a clinical reimbursement writer for outpatient clinics.
+Given structured evidence and a list of CPT codes, produce structured bullets and a draft paragraph for EACH code.
+Return valid JSON only — a single array with one object per CPT code.
+Rules:
+- Every bullet must include at least one source_evidence reference.
+- Do not add clinical facts not found in the evidence.
+- Each code's justification must be distinct and directly tied to the specific service billed.
+- If a code lacks sufficient evidence, set its draft_paragraph to null, populate its warnings, and set evidence_quality to "insufficient".
+- section must be one of: patient_condition, functional_limitation, objective_findings,
+  prior_treatment_history, treatment_provided, medical_necessity, missing_documentation, other."""
+
+ALL_CODES_ITEM_SCHEMA = {
+    "code": "CPT code string",
+    "label": "service label string",
+    "structured_bullets": [
+        {
+            "section": "patient_condition | functional_limitation | objective_findings | prior_treatment_history | treatment_provided | medical_necessity | missing_documentation | other",
+            "label": "string",
+            "content": "string",
+            "source_evidence": [{"source_type": "string", "document_id": "string", "text_span": "string"}],
+            "confidence_score": "number 0-1",
+        }
+    ],
+    "draft_paragraph": "string or null",
+    "warnings": ["string"],
+    "evidence_quality": "strong | partial | insufficient",
+}
+
 DRAFT_OUTPUT_SCHEMA = {
     "structured_bullets": [
         {
@@ -169,6 +197,53 @@ Generate structured bullets and a draft paragraph. Return JSON matching this sha
     )
 
     return _parse_json(response.content[0].text)
+
+
+def generate_all_justifications(
+    evidence: dict[str, Any],
+    ranked_codes: list[dict[str, Any]],
+    gap_analysis: dict[str, Any] | None = None,
+    clinic_formatting: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Single API call returning structured bullets + draft prose for every ranked CPT code."""
+    client = _get_client()
+
+    codes_context = [
+        {
+            "code": c.get("code"),
+            "label": c.get("label"),
+            "units": c.get("units"),
+            "evidence_summary": c.get("evidence_summary", ""),
+            "missing_elements": c.get("missing_elements", []),
+        }
+        for c in ranked_codes
+    ]
+
+    user_message = f"""## Extracted Evidence
+{json.dumps(evidence, indent=2)}
+
+## CPT Codes to Justify
+{json.dumps(codes_context, indent=2)}
+
+## Gap Analysis
+{json.dumps(gap_analysis or {}, indent=2)}
+
+## Clinic Formatting Preferences
+{json.dumps(clinic_formatting or {}, indent=2)}
+
+Return a JSON array with one object per CPT code. Each object must match this schema:
+{json.dumps(ALL_CODES_ITEM_SCHEMA, indent=2)}
+"""
+
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=8192,
+        system=ALL_CODES_SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": user_message}],
+    )
+
+    result = _parse_json(response.content[0].text)
+    return result if isinstance(result, list) else [result]
 
 
 if __name__ == "__main__":

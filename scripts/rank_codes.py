@@ -163,6 +163,90 @@ def fill_cpt_metadata(
     }
 
 
+SINGLE_CODE_EVAL_PROMPT = """You are a clinical coding advisor for outpatient physical therapy reimbursement.
+The clinician has identified a specific CPT code they believe applies to this encounter.
+Your job is to evaluate THAT code against the encounter evidence and return CMS-1500-ready metadata.
+
+Return a SINGLE JSON object (not an array) — exactly for the code specified. Do not add other codes.
+
+Required fields — every field MUST be filled with a real value, never null or an empty string:
+- modifier: always "GP" unless the service is genuinely distinct from others billed same day, then "GP-59"
+- diagnosis_pointer: the letter(s) matching the relevant ICD-10 position (A = first diagnosis, B = second, AB = both)
+- justification: 3-5 sentences in first-person clinician voice referencing documented objective findings,
+  the specific intervention provided, the time spent, and why skilled PT judgment was required.
+  Reference the maximum billable units from the documented service time using the 8-minute rule.
+  Example tone: "The patient presented with [finding]. I provided [X minutes of service], warranting [N units].
+  Skilled PT was required to [reason]."
+- units: use documented service time and 8-minute rule (8-22 min=1, 23-37 min=2, 38-52 min=3, 53-67 min=4).
+  For untimed codes, always 1. Use the MAXIMUM supportable units the documentation supports.
+- supportability_score: 0.0-1.0 reflecting how well the evidence supports this code
+- supporting_docs: clinical documentation items only (ROM, strength, functional tests, treatment notes,
+  physician referral). Never list administrative, billing, or insurance requirements.
+- compliance_warning: null if no issues; otherwise a brief warning string"""
+
+SINGLE_CODE_EVAL_SCHEMA = {
+    "code": "97110",
+    "label": "Therapeutic Exercise",
+    "modifier": "GP",
+    "units": 2,
+    "supportability_score": 0.85,
+    "diagnosis_codes": ["M17.11"],
+    "diagnosis_pointer": "A",
+    "evidence_summary": "Patient demonstrates right knee ROM deficit and quad weakness supporting skilled exercise need.",
+    "missing_elements": ["documented start/stop time for this specific service"],
+    "compliance_warning": None,
+    "supporting_docs": [
+        {"requirement": "ROM measurement documenting deficit", "present": True, "note": "Right knee flexion 95 degrees"},
+        {"requirement": "Documented service time for unit calculation", "present": False, "note": None}
+    ],
+    "justification": "The patient presented with right knee flexion limited to 95 degrees and quadriceps strength of 3+/5, significantly below functional norms required for stair negotiation and sit-to-stand transfers. I provided 30 minutes of therapeutic exercise targeting quadriceps strengthening, hip abductor activation, and terminal knee extension, warranting 2 units under the 8-minute rule. Skilled PT intervention was required to design a progressive loading program that protects the medial compartment while restoring functional muscle balance."
+}
+
+
+def evaluate_single_code(
+    evidence: dict[str, Any],
+    code: str,
+    label: str = "",
+    diagnoses: list[dict] | None = None,
+) -> dict[str, Any]:
+    """Evaluate a single clinician-specified CPT code against encounter evidence.
+    Returns a single object with modifier, units, dx pointer, justification, and supporting docs.
+    """
+    client = _get_client()
+
+    static = _CPT_PT_LOOKUP.get(code.strip(), {})
+    resolved_label = label or static.get("label") or f"CPT {code}"
+    timed_hint = "timed" if static.get("timed", True) else "untimed (always 1 unit)"
+
+    user_message = f"""## Encounter Evidence
+{json.dumps(evidence, indent=2)}
+
+## Code to Evaluate
+Code: {code}
+Label: {resolved_label}
+Timing type: {timed_hint}
+
+## Diagnoses on File
+{json.dumps(diagnoses or [], indent=2)}
+
+Evaluate this specific CPT code against the evidence above.
+Return a single JSON object matching this schema exactly (use real values, not descriptions):
+{json.dumps(SINGLE_CODE_EVAL_SCHEMA, indent=2)}
+"""
+
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=4096,
+        system=SINGLE_CODE_EVAL_PROMPT,
+        messages=[{"role": "user", "content": user_message}],
+    )
+
+    result = _parse_json(response.content[0].text)
+    if isinstance(result, list):
+        result = result[0]
+    return result
+
+
 RANK_OUTPUT_SCHEMA = [
     {
         "code": "CPT string e.g. 97110",

@@ -583,48 +583,44 @@ elif st.session_state.stage == "edit":
                     st.info("Enter a CPT code above, then click Generate.")
                 else:
                     if st.button("⚡ Generate", key=f"gen_{iid}",
-                                 help="Auto-fill metadata and write justification for this code"):
-                        from scripts.rank_codes import fill_cpt_metadata
-                        from scripts.generate_justification import generate_per_code_justifications
+                                 help="AI-generate justification, modifier, units, and dx pointer for this code"):
+                        from scripts.rank_codes import evaluate_single_code
 
-                        # Sync any current widget edits for this item into the dict
-                        for _field, _wkey in [
-                            ("modifier", f"w_mod_{iid}"),
-                            ("dx_pointer", f"w_dx_{iid}"),
-                            ("justification", f"w_just_{iid}"),
-                        ]:
-                            if _wkey in st.session_state:
-                                item[_field] = st.session_state[_wkey]
-                        if f"w_units_{iid}" in st.session_state:
-                            item["units"] = int(st.session_state[f"w_units_{iid}"])
-
-                        # Fill only empty / placeholder fields from lookup table
-                        meta = fill_cpt_metadata(
-                            current_code,
-                            st.session_state.evidence or {},
-                            st.session_state.diagnoses,
-                        )
-                        item["code"] = meta["code"]
-                        if not item.get("label") or item["label"].startswith("CPT "):
-                            item["label"] = meta["label"]
-                        if not item.get("modifier"):
-                            item["modifier"] = meta["modifier"]
-                        if not item.get("dx_pointer"):
-                            item["dx_pointer"] = meta["dx_pointer"]
-                        item["auto_fill_notes"] = meta.get("auto_fill_notes", [])
-
-                        # Pop widget keys so they re-init from updated item values
-                        for _wkey in [f"w_code_{iid}", f"w_mod_{iid}",
-                                      f"w_dx_{iid}", f"w_units_{iid}"]:
-                            st.session_state.pop(_wkey, None)
-
-                        with st.spinner("Generating justification..."):
-                            result = generate_per_code_justifications(
+                        with st.spinner("Generating recommendation..."):
+                            matched = evaluate_single_code(
                                 st.session_state.evidence or {},
-                                [item],
+                                current_code,
+                                label=item.get("label", ""),
+                                diagnoses=st.session_state.diagnoses,
                             )
-                        item["justification"] = result.get(item["code"], "")
-                        st.session_state.pop(f"w_just_{iid}", None)
+
+                        # Update all item fields — coerce every field to a safe non-None value
+                        item["code"] = str(matched.get("code") or current_code).strip()
+                        item["label"] = str(matched.get("label") or item.get("label") or f"CPT {current_code}").strip()
+                        item["modifier"] = str(matched.get("modifier") or "GP").strip()
+                        item["units"] = max(1, int(matched.get("units") or 1))
+                        item["dx_pointer"] = str(matched.get("diagnosis_pointer") or item.get("dx_pointer") or "A").strip()
+                        item["justification"] = str(matched.get("justification") or "").strip()
+                        item["supportability_score"] = float(matched.get("supportability_score") or 0)
+                        item["compliance_warning"] = matched.get("compliance_warning") or None
+                        item["supporting_docs"] = matched.get("supporting_docs") or []
+                        item["missing_elements"] = matched.get("missing_elements") or []
+                        item["evidence_summary"] = str(matched.get("evidence_summary") or "").strip()
+                        item["auto_fill_notes"] = []
+
+                        # Merge any new ICD codes returned by the AI into session state diagnoses
+                        existing_codes = {d["code"] for d in st.session_state.diagnoses}
+                        for icd in matched.get("diagnosis_codes") or []:
+                            if icd not in existing_codes:
+                                st.session_state.diagnoses.append(
+                                    {"code": icd, "label": "", "pointer": _pointer(len(st.session_state.diagnoses))}
+                                )
+                                existing_codes.add(icd)
+
+                        # Pop all widget keys so they re-init from the updated item values
+                        for _wkey in [f"w_code_{iid}", f"w_mod_{iid}",
+                                      f"w_dx_{iid}", f"w_units_{iid}", f"w_just_{iid}"]:
+                            st.session_state.pop(_wkey, None)
                         st.rerun()
 
                 # Show auto-fill notes (if any) as compact info
