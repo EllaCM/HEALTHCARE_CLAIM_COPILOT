@@ -1,6 +1,7 @@
 .tmp/
 .claude/
 outputs/
+data/vector_index/
 __pycache__/
 *.pyc
 *.pyo

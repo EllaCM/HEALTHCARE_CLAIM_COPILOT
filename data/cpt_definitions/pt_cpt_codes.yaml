@@ -1,0 +1,141 @@
+# PT CPT Code definitions — placeholder until authoritative license is acquired.
+# Each entry: label, timed, description, typical_indication.
+# Future: replace YAML source with an API adapter (see scripts/cpt_definitions_adapter.py).
+
+"97110":
+  label: "Therapeutic Exercise"
+  timed: true
+  description: "Skilled exercise to develop strength, endurance, range of motion, and flexibility."
+  typical_indication: "Documented strength deficit (e.g., <4/5 MMT), ROM restriction, or functional impairment requiring skilled instruction and progressive loading."
+
+"97140":
+  label: "Manual Therapy Techniques"
+  timed: true
+  description: "Skilled hands-on techniques including joint mobilization/manipulation, soft tissue mobilization, and myofascial release."
+  typical_indication: "Joint hypomobility, soft-tissue restriction, or pain modulation requiring skilled PT assessment and hands-on treatment."
+
+"97530":
+  label: "Therapeutic Activities"
+  timed: true
+  description: "Dynamic activities using equipment, body mechanics, or functional movement patterns to improve functional performance."
+  typical_indication: "Functional task deficits (e.g., sit-to-stand, stair negotiation, reaching) requiring skilled PT grading and progression."
+
+"97112":
+  label: "Neuromuscular Reeducation"
+  timed: true
+  description: "Techniques to improve movement, balance, coordination, kinesthetic sense, posture, and proprioception."
+  typical_indication: "Documented proprioceptive deficit, balance impairment, or abnormal movement pattern requiring skilled neuromuscular retraining."
+
+"97116":
+  label: "Gait Training"
+  timed: true
+  description: "Skilled training in ambulation with or without assistive devices, on various surfaces, including stairs."
+  typical_indication: "Antalgic gait, balance deficit, use of assistive device, post-surgical gait deviation, or fall risk requiring skilled gait instruction."
+
+"97124":
+  label: "Massage"
+  timed: true
+  description: "Skilled massage including effleurage, petrissage, and tapotement to address soft tissue dysfunction."
+  typical_indication: "Soft tissue tightness, muscle guarding, or lymphedema where skilled massage is medically necessary and not for comfort alone."
+
+"97032":
+  label: "Electrical Stimulation (manual)"
+  timed: true
+  description: "Skilled application of electrical stimulation requiring constant attendance for therapeutic benefit."
+  typical_indication: "Documented muscle inhibition, pain modulation need, or wound healing indication requiring skilled PT monitoring and parameter adjustment."
+
+"97033":
+  label: "Iontophoresis"
+  timed: true
+  description: "Drug delivery via electrical current requiring skilled application and monitoring."
+  typical_indication: "Localized inflammatory condition (e.g., tendinopathy, bursitis) where transdermal drug delivery is indicated and prescribed."
+
+"97034":
+  label: "Contrast Baths"
+  timed: true
+  description: "Alternating immersion in warm and cold water to reduce edema and improve circulation."
+  typical_indication: "Subacute edema or circulatory deficit in a distal extremity requiring skilled therapeutic contrast protocol."
+
+"97035":
+  label: "Ultrasound"
+  timed: true
+  description: "Therapeutic ultrasound for tissue heating, scar remodeling, or phonophoresis."
+  typical_indication: "Soft tissue injury, calcific tendinopathy, scar tissue, or chronic inflammation requiring skilled ultrasound parameter selection."
+
+"97036":
+  label: "Hubbard Tank"
+  timed: true
+  description: "Full-body hydrotherapy in a large tank for wound debridement or aquatic exercise."
+  typical_indication: "Extensive wound care, burns, or conditions requiring full-body aquatic environment for skilled therapeutic intervention."
+
+"97750":
+  label: "Physical Performance Test"
+  timed: true
+  description: "Standardized physical performance testing with written report (e.g., 6MWT, 30-sec STS, BERG)."
+  typical_indication: "Need to objectively quantify functional capacity, establish baseline, or document progress using a standardized outcome measure."
+
+"97760":
+  label: "Orthotic Management and Training"
+  timed: true
+  description: "Skilled fitting, checkout, and training in use of orthotic devices."
+  typical_indication: "New or modified orthosis requiring skilled PT assessment of fit, functional alignment, and patient training for safe use."
+
+"97010":
+  label: "Hot or Cold Packs"
+  timed: false
+  description: "Application of superficial heat or cold as a preparatory or adjunctive modality."
+  typical_indication: "Used as an adjunct to skilled PT services; must be paired with a skilled service to be billable."
+
+"97012":
+  label: "Mechanical Traction"
+  timed: false
+  description: "Mechanical cervical or lumbar traction applied by a device."
+  typical_indication: "Documented radiculopathy, herniated disc with nerve root compression, or joint hypomobility responding to traction."
+
+"97016":
+  label: "Vasopneumatic Devices"
+  timed: false
+  description: "Intermittent compression pump for edema management."
+  typical_indication: "Documented lymphedema or post-surgical edema where compression pump is medically indicated."
+
+"97018":
+  label: "Paraffin Bath"
+  timed: false
+  description: "Superficial heat via paraffin wax immersion for hands or feet."
+  typical_indication: "Stiffness or pain in small joints (e.g., rheumatoid arthritis, hand OA) where superficial heat improves tissue mobility for subsequent skilled treatment."
+
+"97022":
+  label: "Whirlpool"
+  timed: false
+  description: "Hydrotherapy in a whirlpool tank for wound care or therapeutic benefit."
+  typical_indication: "Open wounds, burns, or significant edema requiring hydrotherapy as an adjunct to skilled PT wound management."
+
+"97150":
+  label: "Therapeutic Exercises - Group"
+  timed: false
+  description: "Group therapeutic exercise involving two or more patients under skilled PT supervision."
+  typical_indication: "Patients who can safely exercise in a group setting with periodic skilled oversight and instruction."
+
+"97161":
+  label: "Physical Therapy Evaluation - Low Complexity"
+  timed: false
+  description: "Initial PT evaluation with low clinical decision-making complexity."
+  typical_indication: "New patient or new condition with 1-2 personal factors or comorbidities, stable or evolving presentation, and straightforward clinical decision-making."
+
+"97162":
+  label: "Physical Therapy Evaluation - Moderate Complexity"
+  timed: false
+  description: "Initial PT evaluation with moderate clinical decision-making complexity."
+  typical_indication: "New patient or new condition with 3+ personal factors or comorbidities, or evolving clinical presentation requiring moderate-complexity plan of care."
+
+"97163":
+  label: "Physical Therapy Evaluation - High Complexity"
+  timed: false
+  description: "Initial PT evaluation with high clinical decision-making complexity."
+  typical_indication: "New patient with multifaceted presentation, multiple comorbidities, unstable condition, or high personal risk factors requiring comprehensive assessment."
+
+"97164":
+  label: "Physical Therapy Re-evaluation"
+  timed: false
+  description: "Re-evaluation when there is a significant change in clinical status or plan of care."
+  typical_indication: "Documented change in clinical status, failure to progress as expected, or new clinical findings requiring reassessment and plan of care modification."

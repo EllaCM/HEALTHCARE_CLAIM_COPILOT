@@ -1,0 +1,43 @@
+OUTPATIENT PHYSICAL THERAPY NOTE
+Date of Service: 2026-04-20
+Patient: Jane Doe | DOB: 1978-03-14 | MRN: 00123456
+Clinician: Dr. Sarah Kim, PT, DPT
+Visit Type: Follow-up (visit 4 of 8)
+
+CHIEF COMPLAINT:
+Patient presents with persistent low back pain rated 6/10 on the Numeric Pain Rating Scale (NPRS).
+Pain is described as aching and intermittent, worsening with prolonged sitting and forward bending.
+
+HISTORY OF PRESENT ILLNESS:
+Ms. Doe first presented on 2026-03-15 with acute onset low back pain following a slip-and-fall at work.
+She was initially evaluated at urgent care and diagnosed with lumbar muscle strain (ICD-10: M54.5).
+Prior to physical therapy, she was prescribed NSAIDs (ibuprofen 600 mg TID) by her primary care physician
+with partial relief. She has not had prior physical therapy for this episode.
+
+OBJECTIVE FINDINGS:
+- Lumbar ROM: flexion 40° (limited, nl 60°), extension 20° (limited, nl 25°), lateral flexion symmetric at 20°
+- Straight Leg Raise: negative bilaterally
+- Palpation: tenderness at L3-L5 paraspinals, right > left
+- Strength: hip flexors 4/5 bilateral, core stability reduced (unable to maintain neutral spine >10 sec)
+- Functional mobility: antalgic gait noted, patient guarding with all transitions
+
+FUNCTIONAL LIMITATIONS:
+Patient reports inability to sit for more than 20 minutes without pain exacerbation. She is unable to perform
+job duties as a data entry clerk (prolonged sitting). She also reports difficulty with ADLs including
+bending to load the dishwasher and lifting groceries >5 lbs.
+
+TREATMENT PROVIDED TODAY (60 minutes):
+1. Therapeutic exercise — core stabilization program: 3 sets x 10 reps bird-dog, dead bug, and bridges (15 min)
+2. Manual therapy — lumbar mobilization grades III-IV at L3-L4 and L4-L5 (10 min)
+3. Neuromuscular re-education — gait training and postural correction (10 min)
+4. Therapeutic activities — functional task simulation (bending/lifting mechanics) (10 min)
+5. Hot pack to lumbar spine (15 min)
+
+RESPONSE TO TREATMENT:
+Patient tolerated treatment well. Pain decreased from 6/10 to 3/10 by end of session.
+Patient demonstrated improved lumbar flexion to 50° post-mobilization.
+
+PLAN:
+Continue plan of care: 2x/week for 4 additional weeks.
+Goals: Return to full-time work duties, pain ≤ 2/10, restore lumbar ROM to within normal limits.
+HEP: Patient instructed on home exercise program, verbalized understanding and demonstrated correct technique.

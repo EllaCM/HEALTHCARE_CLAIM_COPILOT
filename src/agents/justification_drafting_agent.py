@@ -6,7 +6,7 @@ from typing import Any
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent.parent))
 
-from scripts.generate_justification import generate_all_justifications
+from scripts.rag_justification import generate_all_justifications
 
 _QUALITY_RANK = {"insufficient": 0, "partial": 1, "strong": 2}
 
@@ -31,7 +31,16 @@ class JustificationDraftingAgent:
             raise ValueError(f"[{encounter_id}] No evidence found. Run EncounterEvidenceAgent first.")
 
         clinic_formatting = encounter_package.get("_clinic_formatting", {})
-        per_code = generate_all_justifications(evidence, ranked_codes, gap_analysis, clinic_formatting)
+        patient_id = encounter_package.get("patient_id", "unknown-patient")
+        note_text = (
+            encounter_package.get("source_documents", {})
+            .get("uploaded_treatment_note", {})
+            .get("parsed_text", "")
+        )
+        per_code = generate_all_justifications(
+            evidence, ranked_codes, gap_analysis, clinic_formatting,
+            patient_id=patient_id, encounter_id=encounter_id, note_text=note_text,
+        )
 
         qualities = [e.get("evidence_quality", "insufficient") for e in per_code]
         overall = min(qualities, key=lambda q: _QUALITY_RANK.get(q, 0), default="insufficient")
