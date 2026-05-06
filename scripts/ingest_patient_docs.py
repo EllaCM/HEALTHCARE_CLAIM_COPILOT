@@ -5,13 +5,17 @@ import pathlib
 import re
 from typing import Any
 
-import chromadb
-import voyageai
+try:
+    import chromadb
+    import voyageai
+    _RAG_AVAILABLE = True
+except ImportError:
+    _RAG_AVAILABLE = False
 
 _PROJECT_ROOT = pathlib.Path(__file__).parent.parent
 _VECTOR_INDEX_DIR = _PROJECT_ROOT / "data" / "vector_index"
 
-_voyage_client: voyageai.Client | None = None
+_voyage_client = None  # voyageai.Client when _RAG_AVAILABLE
 
 # Section header keywords (uppercase match)
 _SECTION_KEYWORDS: dict[str, list[str]] = {
@@ -32,7 +36,7 @@ _ORDERED_KEYWORDS: list[tuple[str, str]] = sorted(
 )
 
 
-def _get_voyage_client() -> voyageai.Client:
+def _get_voyage_client():
     global _voyage_client
     if _voyage_client is None:
         key = os.environ.get("VOYAGE_API_KEY")
@@ -88,7 +92,7 @@ def _collection_name(patient_id: str, encounter_id: str) -> str:
     return f"{safe_patient}__{safe_encounter}"
 
 
-def _get_chroma_client(patient_id: str, encounter_id: str) -> chromadb.PersistentClient:
+def _get_chroma_client(patient_id: str, encounter_id: str):
     persist_dir = _VECTOR_INDEX_DIR / patient_id / encounter_id
     persist_dir.mkdir(parents=True, exist_ok=True)
     return chromadb.PersistentClient(path=str(persist_dir))
@@ -100,6 +104,8 @@ def ingest_encounter(patient_id: str, encounter_id: str, note_text: str) -> str:
     Idempotent: skips embedding if this encounter is already indexed.
     Returns the Chroma collection name.
     """
+    if not _RAG_AVAILABLE:
+        return "unavailable"
     client = _get_chroma_client(patient_id, encounter_id)
     name = _collection_name(patient_id, encounter_id)
     collection = client.get_or_create_collection(name=name, metadata={"hnsw:space": "cosine"})
@@ -141,6 +147,8 @@ def retrieve_chunks(
 
     Returns [{section, text, chunk_index, distance}].
     """
+    if not _RAG_AVAILABLE:
+        return []
     client = _get_chroma_client(patient_id, encounter_id)
     name = _collection_name(patient_id, encounter_id)
 

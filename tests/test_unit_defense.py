@@ -67,17 +67,20 @@ class TestBuildUnitDefensePrompt:
         result = _build_unit_defense_prompt(units=2, code="97140", is_timed=True)
         assert "97140" in result
 
-    def test_underbilling_instructs_defense(self):
+    def test_underbilling_instructs_standard_justification(self):
         result = _build_unit_defense_prompt(units=1, code="97110", is_timed=True).lower()
-        assert "defend" in result or "defending" in result or "explain" in result
+        assert "standard" in result or "confident" in result or "natural" in result
 
-    def test_overcoding_instructs_compliance_warning(self):
+    def test_underbilling_does_not_instruct_defense_bullet(self):
         result = _build_unit_defense_prompt(units=1, code="97110", is_timed=True).lower()
-        assert "exceed" in result or "compliance warning" in result
+        assert "medical_necessity" not in result or "defense" not in result.split("medical_necessity")[0]
+        assert "add a" not in result or "medical_necessity" not in result
 
-    def test_unverifiable_time_instructs_warning(self):
+    def test_missing_per_code_time_instructs_activity_reasoning(self):
         result = _build_unit_defense_prompt(units=1, code="97110", is_timed=True).lower()
-        assert "warning" in result or "cannot" in result or "not found" in result
+        # New behavior: reason from treatment activities, not warn about missing time
+        assert "treatment activit" in result or "attributable" in result or "allocated" in result
+        assert "do not warn" in result or "rarely documented" in result
 
     def test_different_unit_counts_reflected(self):
         for n in (1, 2, 3, 4):
@@ -85,11 +88,68 @@ class TestBuildUnitDefensePrompt:
             assert f"{n} unit" in result
 
 
+# ── New boundary + prose requirement tests ────────────────────────────────────
+
+class TestEightMinuteRuleBoundaries:
+    """Explicit per-boundary assertions for the 8-minute rule thresholds."""
+
+    def test_exactly_8_minutes_gives_1_unit(self):
+        assert _eight_minute_rule(8) == 1
+
+    def test_22_minutes_gives_1_unit(self):
+        assert _eight_minute_rule(22) == 1
+
+    def test_23_minutes_gives_2_units(self):
+        assert _eight_minute_rule(23) == 2
+
+    def test_37_minutes_gives_2_units(self):
+        assert _eight_minute_rule(37) == 2
+
+    def test_38_minutes_gives_3_units(self):
+        assert _eight_minute_rule(38) == 3
+
+    def test_7_minutes_gives_0_units(self):
+        assert _eight_minute_rule(7) == 0
+
+
+class TestUnitDefenseProseRequirement:
+    """Tests for the updated prompt requiring unit count in draft_paragraph."""
+
+    def test_timed_prompt_contains_unit_count(self):
+        result = _build_unit_defense_prompt(units=3, code="97110", is_timed=True)
+        assert "3 unit" in result
+
+    def test_timed_prompt_references_documented_minutes(self):
+        result = _build_unit_defense_prompt(units=2, code="97140", is_timed=True)
+        assert "documented minutes" in result.lower() or "documented" in result.lower()
+
+    def test_timed_prompt_instructs_prose_inclusion(self):
+        result = _build_unit_defense_prompt(units=1, code="97530", is_timed=True)
+        assert "draft_paragraph" in result or "paragraph" in result.lower() or "MUST" in result
+
+    def test_untimed_prompt_returns_empty_string(self):
+        assert _build_unit_defense_prompt(units=1, code="97010", is_timed=False) == ""
+
+    def test_untimed_prompt_no_eight_minute_reference(self):
+        result = _build_unit_defense_prompt(units=1, code="97012", is_timed=False)
+        assert "8-minute" not in result
+
+
 # ── Integration tests (require both API keys) ──────────────────────────────────
 
+def _has_chromadb() -> bool:
+    try:
+        import chromadb  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 _NEEDS_KEYS = pytest.mark.skipif(
-    not os.environ.get("ANTHROPIC_API_KEY") or not os.environ.get("VOYAGE_API_KEY"),
-    reason="ANTHROPIC_API_KEY and VOYAGE_API_KEY required for integration tests",
+    not os.environ.get("ANTHROPIC_API_KEY")
+    or not os.environ.get("VOYAGE_API_KEY")
+    or not _has_chromadb(),
+    reason="ANTHROPIC_API_KEY, VOYAGE_API_KEY, and chromadb required for integration tests",
 )
 
 
@@ -106,16 +166,17 @@ def test_overcoding_produces_units_warning():
     # Use a stable encounter so ingestion is idempotent
     evidence = extract_evidence(note, [], "test-unit-defense-overcode")
 
-    # LBP note: core stabilization = 15 min → max 1 unit; submitting 3 = overcoding
+    # LBP note: 15 min documented → max 1 unit; submitting 3 with minutes=15 = overbilling block
     result = evaluate_single_code(
-        evidence, "97110", units=3,
+        evidence, "97110", units=3, minutes=15,
         patient_id="patient-001", encounter_id="smoke-lbp", note_text=note,
     )
 
-    warnings = result.get("warnings", [])
-    assert any("unit" in w.lower() or "exceed" in w.lower() for w in warnings), (
-        f"Expected a units/overcoding warning, got: {warnings}"
+    assert result.get("overbilling") is True, (
+        f"Expected overbilling=True early return, got: {result}"
     )
+    assert result.get("draft_paragraph") is None, "Overbilling should produce no justification"
+    assert result.get("max_units") == 1, f"Expected max_units=1, got {result.get('max_units')}"
 
 
 @_NEEDS_KEYS

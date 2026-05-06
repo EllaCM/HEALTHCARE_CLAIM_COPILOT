@@ -13,8 +13,12 @@ load_dotenv()
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 
 import streamlit as st
+from scripts.cpt_definitions_adapter import CPTDefinitionsAdapter
+from scripts.billing_utils import compute_timed_units, compute_available_minutes, validate_minutes_allocation
 
 st.set_page_config(page_title="Claim Copilot", page_icon="🏥", layout="wide")
+
+_cpt_adapter = CPTDefinitionsAdapter()
 
 # ── CSS ────────────────────────────────────────────────────────────────────────
 st.markdown("""
@@ -60,6 +64,7 @@ _DEFAULTS = {
     "chat_history": [],          # [{role, content}]
     "processing_done": False,
     "extra_docs": {},            # {item_id+req: uploaded bytes}
+    "session_duration_minutes": None,  # extracted from encounter note
 }
 for k, v in _DEFAULTS.items():
     if k not in st.session_state:
@@ -139,6 +144,7 @@ def _make_cpt_item(ranked: dict, idx: int, diagnoses: list[dict]) -> dict:
         "modifier": ranked.get("modifier", "GP"),
         "label": ranked.get("label", ""),
         "units": int(ranked.get("units", 1)),
+        "minutes": 0,
         "dx_pointer": ranked.get("diagnosis_pointer") or _pointer_from_codes(
             ranked.get("diagnosis_codes", []), diagnoses
         ),
@@ -184,8 +190,14 @@ def _read_widget_edits() -> None:
         ]:
             if key in st.session_state:
                 item[field] = st.session_state[key]
-        if f"w_units_{iid}" in st.session_state:
-            item["units"] = int(st.session_state[f"w_units_{iid}"])
+        if f"w_minutes_{iid}" in st.session_state:
+            item["minutes"] = int(st.session_state[f"w_minutes_{iid}"] or 0)
+        defn = _cpt_adapter.get_definition(item.get("code", "")) if item.get("code") else {}
+        is_timed = defn.get("timed", False)
+        if is_timed and item.get("minutes", 0) > 0:
+            item["units"] = compute_timed_units(item["minutes"])
+        elif not is_timed:
+            item["units"] = 1
 
 
 def _generate_output_doc() -> str:
@@ -350,6 +362,7 @@ if st.session_state.stage == "upload":
             try:
                 ev = extract_evidence(note_text, encounter_id=st.session_state.encounter_id)
                 st.session_state.evidence = ev
+                st.session_state.session_duration_minutes = ev.get("session_duration_minutes")
 
                 # Seed diagnosis list — will be refined by rank_codes output in edit stage
                 cond = ev.get("patient_condition", "")
@@ -505,7 +518,7 @@ elif st.session_state.stage == "edit":
     st.markdown(f"### Encounter `{st.session_state.encounter_id}` — Review & Edit")
     st.caption("Edit codes, modifiers, units, and justification text directly. Use the chatbot on the right for questions.")
 
-    # Sticky chatbot column: scoped to stMain, only top-level horizontal block (not nested ones)
+    # Sticky chatbot column + billing header styles
     st.markdown("""
     <style>
     section[data-testid="stMain"]
@@ -524,8 +537,60 @@ elif st.session_state.stage == "edit":
         max-height: calc(100vh - 4.5rem);
         overflow-y: auto;
     }
+    .billing-header {
+        background: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 8px;
+        padding: 10px 20px;
+        margin-bottom: 14px;
+        display: flex;
+        gap: 48px;
+        align-items: center;
+    }
+    .bh-label { color: #94a3b8; font-size: 0.72rem; text-transform: uppercase; letter-spacing: .05em; }
+    .bh-value { font-size: 1.1rem; font-weight: 700; color: #f1f5f9; }
+    .bh-value.warn { color: #f97316; }
     </style>
     """, unsafe_allow_html=True)
+
+    # Apply any widget value updates queued by the Generate handler in the previous run.
+    # Must happen before any widget is instantiated — setting session_state after a widget
+    # renders in the same run raises a Streamlit error.
+    if "_pending_widget_updates" in st.session_state:
+        for _k, _v in st.session_state.pop("_pending_widget_updates").items():
+            st.session_state[_k] = _v
+
+    # ── Billing header — full-width, above columns ────────────────────────────
+    _read_widget_edits()
+    total_min = st.session_state.session_duration_minutes
+    used_min = sum(
+        int(st.session_state.get(f"w_minutes_{item['id']}", item.get("minutes", 0)) or 0)
+        for item in st.session_state.cpt_items
+        if item.get("selected") and item["id"] not in st.session_state.deleted_ids
+    )
+    if total_min is not None:
+        avail_min = total_min - used_min
+        warn_cls = "warn" if avail_min < 0 else ""
+        st.markdown(
+            f'<div class="billing-header">'
+            f'<div><div class="bh-label">Total Treatment Time</div>'
+            f'<div class="bh-value">{total_min} min</div></div>'
+            f'<div><div class="bh-label">Available Billable Time</div>'
+            f'<div class="bh-value {warn_cls}">{avail_min} min</div></div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        warn_cls = "warn" if used_min > 0 else ""
+        st.markdown(
+            f'<div class="billing-header">'
+            f'<div><div class="bh-label">Total Treatment Time</div>'
+            f'<div class="bh-value" style="color:#94a3b8">Not detected</div></div>'
+            f'<div><div class="bh-label">Time Allocated to Codes</div>'
+            f'<div class="bh-value">{used_min} min</div></div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
 
     col_main, col_chat = st.columns([2, 1], gap="large")
 
@@ -555,13 +620,46 @@ elif st.session_state.stage == "edit":
             )
 
             with st.expander("Edit details", expanded=True):
-                # Code fields row
-                c1, c2, c3, c4, c5 = st.columns([2, 2, 1, 2, 1])
+                # Code fields row: CPT | Modifier | Tx Min | Units(computed) | Dx Pointer | (gap) | Delete
+                c1, c2, c3, c4, c5, c6, c7 = st.columns([2.2, 1.5, 1.3, 1.3, 1.5, 0.3, 0.6])
                 c1.text_input("CPT Code", value=item["code"], key=f"w_code_{iid}")
                 c2.text_input("Modifier", value=item["modifier"], key=f"w_mod_{iid}")
-                c3.number_input("Units", value=item["units"], min_value=1, max_value=16, key=f"w_units_{iid}")
-                c4.text_input("Dx Pointer", value=item["dx_pointer"], key=f"w_dx_{iid}")
-                if c5.button("🗑", key=f"del_{iid}", help="Remove this code"):
+
+                # Resolve timed status using current widget value if available
+                current_code_widget = st.session_state.get(f"w_code_{iid}", item["code"]).strip()
+                item_defn = _cpt_adapter.get_definition(current_code_widget) if current_code_widget else {}
+                item_is_timed = item_defn.get("timed", False)
+
+                with c3:
+                    if item_is_timed:
+                        st.number_input(
+                            "Tx Min",
+                            min_value=0,
+                            max_value=600,
+                            value=item.get("minutes", 0),
+                            step=1,
+                            key=f"w_minutes_{iid}",
+                            help="Documented treatment minutes for this code",
+                        )
+                    else:
+                        st.caption("Untimed\n(1 unit)")
+
+                with c4:
+                    live_min = int(st.session_state.get(f"w_minutes_{iid}", item.get("minutes", 0)) or 0)
+                    if item_is_timed and 0 < live_min < 8:
+                        st.markdown(
+                            '<span style="color:#ef4444;font-size:.9rem">0 units<br>(&lt;8 min)</span>',
+                            unsafe_allow_html=True,
+                        )
+                    elif item_is_timed:
+                        units_display = compute_timed_units(live_min) if live_min >= 8 else item.get("units", 1)
+                        label = f"**{units_display}** unit{'s' if units_display != 1 else ''}"
+                        st.markdown(label, help="Auto-calculated via 8-min rule")
+                    else:
+                        st.markdown("**1** unit", help="Untimed code — always 1 unit")
+
+                c5.text_input("Dx Pointer", value=item["dx_pointer"], key=f"w_dx_{iid}")
+                if c7.button("🗑", key=f"del_{iid}", help="Remove this code"):
                     st.session_state.deleted_ids.add(iid)
                     st.rerun()
 
@@ -577,51 +675,73 @@ elif st.session_state.stage == "edit":
                     help="Edit freely. Ask the chatbot to rewrite or improve this text.",
                 )
 
-                # ── Generate button (always visible when a code is present) ────
-                current_code = st.session_state.get(f"w_code_{iid}", item["code"]).strip()
+                # ── Generate button ───────────────────────────────────────────
+                current_code = current_code_widget
+                missing_minutes = item_is_timed and item.get("minutes", 0) == 0 and not item.get("justification")
+
                 if not current_code:
                     st.info("Enter a CPT code above, then click Generate.")
+                elif missing_minutes:
+                    st.button(
+                        "⚡ Generate",
+                        key=f"gen_{iid}",
+                        disabled=True,
+                        help="Enter treatment minutes (Tx Min) before generating justification",
+                    )
+                    st.caption("Enter treatment minutes (Tx Min) for this timed code first.")
                 else:
                     if st.button("⚡ Generate", key=f"gen_{iid}",
                                  help="AI-generate justification, modifier, units, and dx pointer for this code"):
-                        from scripts.rank_codes import evaluate_single_code
+                        from scripts.rag_justification import evaluate_single_code as rag_evaluate_single_code
 
-                        with st.spinner("Generating recommendation..."):
-                            matched = evaluate_single_code(
-                                st.session_state.evidence or {},
-                                current_code,
-                                label=item.get("label", ""),
-                                diagnoses=st.session_state.diagnoses,
-                            )
-
-                        # Update all item fields — coerce every field to a safe non-None value
-                        item["code"] = str(matched.get("code") or current_code).strip()
-                        item["label"] = str(matched.get("label") or item.get("label") or f"CPT {current_code}").strip()
-                        item["modifier"] = str(matched.get("modifier") or "GP").strip()
-                        item["units"] = max(1, int(matched.get("units") or 1))
-                        item["dx_pointer"] = str(matched.get("diagnosis_pointer") or item.get("dx_pointer") or "A").strip()
-                        item["justification"] = str(matched.get("justification") or "").strip()
-                        item["supportability_score"] = float(matched.get("supportability_score") or 0)
-                        item["compliance_warning"] = matched.get("compliance_warning") or None
-                        item["supporting_docs"] = matched.get("supporting_docs") or []
-                        item["missing_elements"] = matched.get("missing_elements") or []
-                        item["evidence_summary"] = str(matched.get("evidence_summary") or "").strip()
-                        item["auto_fill_notes"] = []
-
-                        # Merge any new ICD codes returned by the AI into session state diagnoses
-                        existing_codes = {d["code"] for d in st.session_state.diagnoses}
-                        for icd in matched.get("diagnosis_codes") or []:
-                            if icd not in existing_codes:
-                                st.session_state.diagnoses.append(
-                                    {"code": icd, "label": "", "pointer": _pointer(len(st.session_state.diagnoses))}
+                        try:
+                            with st.spinner("Generating recommendation..."):
+                                matched = rag_evaluate_single_code(
+                                    st.session_state.evidence or {},
+                                    current_code,
+                                    label=item.get("label", ""),
+                                    units=item.get("units") or None,
+                                    minutes=item.get("minutes") or None,
+                                    note_text=st.session_state.get("note_text") or None,
+                                    patient_id=st.session_state.get("patient_id") or None,
+                                    encounter_id=st.session_state.get("encounter_id") or None,
                                 )
-                                existing_codes.add(icd)
 
-                        # Pop all widget keys so they re-init from the updated item values
-                        for _wkey in [f"w_code_{iid}", f"w_mod_{iid}",
-                                      f"w_dx_{iid}", f"w_units_{iid}", f"w_just_{iid}"]:
-                            st.session_state.pop(_wkey, None)
-                        st.rerun()
+                            # Update all item fields — coerce every field to a safe non-None value
+                            item["code"] = str(matched.get("code") or current_code).strip()
+                            item["label"] = str(matched.get("label") or item.get("label") or f"CPT {current_code}").strip()
+                            item["modifier"] = str(matched.get("modifier") or "GP").strip()
+                            item["dx_pointer"] = str(matched.get("diagnosis_pointer") or item.get("dx_pointer") or "A").strip()
+                            item["justification"] = str(matched.get("justification") or matched.get("draft_paragraph") or "").strip()
+                            item["supportability_score"] = float(matched.get("supportability_score") or 0)
+                            item["compliance_warning"] = matched.get("compliance_warning") or (
+                                matched.get("warnings", [None])[0] if matched.get("warnings") else None
+                            )
+                            item["supporting_docs"] = matched.get("supporting_docs") or []
+                            item["missing_elements"] = matched.get("missing_elements") or []
+                            item["evidence_summary"] = str(matched.get("evidence_summary") or "").strip()
+                            item["auto_fill_notes"] = []
+
+                            # Merge any new ICD codes returned by the AI into session state diagnoses
+                            existing_codes = {d["code"] for d in st.session_state.diagnoses}
+                            for icd in matched.get("diagnosis_codes") or []:
+                                if icd not in existing_codes:
+                                    st.session_state.diagnoses.append(
+                                        {"code": icd, "label": "", "pointer": _pointer(len(st.session_state.diagnoses))}
+                                    )
+                                    existing_codes.add(icd)
+
+                            # Queue widget updates for the next run — cannot set widget session
+                            # state keys after the widget has already been instantiated this run.
+                            st.session_state["_pending_widget_updates"] = {
+                                f"w_code_{iid}": item["code"],
+                                f"w_mod_{iid}": item["modifier"],
+                                f"w_dx_{iid}": item["dx_pointer"],
+                                f"w_just_{iid}": item["justification"],
+                            }
+                            st.rerun()
+                        except Exception as _gen_err:
+                            st.error(f"Generation failed: {_gen_err}")
 
                 # Show auto-fill notes (if any) as compact info
                 for note in item.get("auto_fill_notes", []):
@@ -700,16 +820,20 @@ elif st.session_state.stage == "edit":
         if submitted and user_input.strip():
             _read_widget_edits()
             from scripts.chatbot import chat as agent_chat
-            with st.spinner("Thinking..."):
-                response = agent_chat(
-                    user_message=user_input,
-                    note_text=st.session_state.note_text,
-                    evidence=st.session_state.evidence or {},
-                    cpt_items=_active_items(),
-                    chat_history=st.session_state.chat_history,
-                )
-            st.session_state.chat_history.append({"role": "user", "content": user_input})
-            st.session_state.chat_history.append({"role": "assistant", "content": response})
+            try:
+                with st.spinner("Thinking..."):
+                    response = agent_chat(
+                        user_message=user_input,
+                        note_text=st.session_state.note_text,
+                        evidence=st.session_state.evidence or {},
+                        cpt_items=_active_items(),
+                        chat_history=st.session_state.chat_history,
+                    )
+                st.session_state.chat_history.append({"role": "user", "content": user_input})
+                st.session_state.chat_history.append({"role": "assistant", "content": response})
+            except Exception as _chat_err:
+                st.session_state.chat_history.append({"role": "user", "content": user_input})
+                st.session_state.chat_history.append({"role": "assistant", "content": f"⚠️ Error: {_chat_err}"})
             st.rerun()
 
 

@@ -11,6 +11,7 @@ from typing import Any
 import anthropic
 
 from scripts.rag_justification_prompts import _run_rag_for_code, _parse_json_rag
+from scripts.billing_utils import _eight_minute_rule
 
 _client: anthropic.Anthropic | None = None
 
@@ -107,10 +108,39 @@ def evaluate_single_code(
     encounter_id: str | None = None,
     note_text: str | None = None,
     units: int | None = None,
+    minutes: int | None = None,
 ) -> dict[str, Any]:
     """RAG-powered single-code evaluation. Drop-in replacement for rank_codes.evaluate_single_code."""
     pid, eid, note = _resolve_rag_context(evidence, patient_id, encounter_id, note_text)
-    return _run_rag_for_code(evidence, code, label, None, pid, eid, note, _get_client(), units=units)
+
+    # Overbilling guard: block LLM call and return warning immediately
+    if units is not None and minutes is not None:
+        from scripts.cpt_definitions_adapter import CPTDefinitionsAdapter
+        is_timed = CPTDefinitionsAdapter().get_definition(code).get("timed", True)
+        if is_timed:
+            max_units = _eight_minute_rule(minutes)
+            if units > max_units:
+                msg = (
+                    f"Max billable units for {minutes} min is {max_units} "
+                    f"(8-min rule: 8-22 min=1, 23-37=2, 38-52=3, 53-67=4). "
+                    f"Reduce to {max_units} or fewer before generating justification."
+                )
+                return {
+                    "code": code,
+                    "label": label,
+                    "draft_paragraph": None,
+                    "justification": "",
+                    "compliance_warning": msg,
+                    "warnings": [msg],
+                    "supportability_score": None,
+                    "evidence_quality": "insufficient",
+                    "structured_bullets": [],
+                    "retrieved_sources": [],
+                    "overbilling": True,
+                    "max_units": max_units,
+                }
+
+    return _run_rag_for_code(evidence, code, label, None, pid, eid, note, _get_client(), units=units, minutes=minutes)
 
 
 if __name__ == "__main__":

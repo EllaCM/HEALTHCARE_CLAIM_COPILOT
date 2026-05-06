@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import sys
 from typing import Any
 
@@ -72,7 +73,26 @@ EXTRACT_SCHEMA = {
     "medical_necessity_signals": ["string"],
     "missing_information": ["string"],
     "confidence_score": "number 0-1",
+    "session_duration_minutes": "integer or null",
 }
+
+
+def _extract_duration_regex(note_text: str) -> int | None:
+    """Regex fallback: extract total session duration from common note patterns."""
+    patterns = [
+        r'\((\d+)\s*minutes?\)',                                    # (60 minutes)
+        r'(\d+)[- ]minute\s+(?:session|visit|treatment)',           # 60-minute session
+        r'total\s+(?:treatment\s+)?time[:\s]+(\d+)\s*min',         # total treatment time: 60 min
+        r'treated\s+for\s+(\d+)\s*min',                            # treated for 60 min
+        r'(\d+)\s*min(?:utes?)?\s+(?:session|total)',               # 60 min session
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, note_text, re.IGNORECASE)
+        if match:
+            val = int(match.group(1))
+            if 5 <= val <= 240:
+                return val
+    return None
 
 
 def extract_evidence(
@@ -94,6 +114,11 @@ def extract_evidence(
 
 Extract evidence into JSON with this shape:
 {json.dumps(EXTRACT_SCHEMA, indent=2)}
+
+Field notes:
+- session_duration_minutes: Total treatment session time in minutes.
+  Look for explicit duration statements ("45-minute session", "treated for 30 min",
+  scheduled appointment time). Return null if not determinable from the note.
 """
 
     response = client.messages.create(
@@ -103,7 +128,10 @@ Extract evidence into JSON with this shape:
         messages=[{"role": "user", "content": user_message}],
     )
 
-    return _parse_json(response.content[0].text)
+    result = _parse_json(response.content[0].text)
+    if not result.get("session_duration_minutes"):
+        result["session_duration_minutes"] = _extract_duration_regex(encounter_note)
+    return result
 
 
 if __name__ == "__main__":

@@ -6,8 +6,8 @@ from typing import Any
 
 import anthropic
 
+from scripts.billing_utils import _eight_minute_rule
 from scripts.cpt_definitions_adapter import CPTDefinitionsAdapter
-from scripts.ingest_patient_docs import ingest_encounter, retrieve_chunks
 
 _cpt_adapter = CPTDefinitionsAdapter()
 
@@ -20,8 +20,22 @@ Rules:
 - Write in first-person clinical tone as the treating therapist.
 - Each structured_bullet must reference its source via the section name in source_evidence.
 - Do not add clinical facts absent from the retrieved chunks or encounter evidence summary.
-- If retrieved context lacks sufficient support, set draft_paragraph to null and populate warnings.
-- evidence_quality: "strong" = direct retrieved evidence for all bullets; "partial" = some inferred; "insufficient" = no direct support."""
+- If retrieved chart sections are absent, fall back to the Full Structured Evidence section and
+  any note text provided to generate a best-effort justification. Only set draft_paragraph to null
+  when there is truly no clinical information at all (empty evidence AND empty retrieved sections).
+  Always generate a draft paragraph when any clinical context is available.
+- evidence_quality: "strong" = direct retrieved evidence for all bullets; "partial" = some inferred; "insufficient" = no direct support.
+
+Time segmentation guidance:
+- Outpatient PT notes routinely describe total session treatments without segmenting time per CPT code.
+  The ABSENCE of per-code time documentation is normal and expected — never penalize, warn, or lower
+  supportability_score for this reason alone.
+- When per-code time is not explicit, interpret each treatment activity described in the note and
+  identify which activities are reasonably attributable to the CPT code being justified. Acknowledge
+  that the clinician has allocated the submitted units from the documented session activities.
+- Multiple described treatment items (e.g., quad sets, SLR, bike, resistance band exercises) can
+  be grouped and billed together under a single CPT code such as 97110 (therapeutic exercise).
+  A justification may reference any or all of these activities as contributing to the submitted units."""
 
 RAG_OUTPUT_SCHEMA = {
     "code": "CPT code string",
@@ -48,36 +62,30 @@ RAG_OUTPUT_SCHEMA = {
 }
 
 
-def _eight_minute_rule(minutes: int) -> int:
-    """Return max billable units for a timed code given documented service minutes."""
-    if minutes < 8:
-        return 0
-    return (minutes - 8) // 15 + 1
-
-
-def _build_unit_defense_prompt(units: int, code: str, is_timed: bool) -> str:
+def _build_unit_defense_prompt(units: int, code: str, is_timed: bool, minutes: int | None = None) -> str:
     """Return the billing-unit defense block to inject into the user message.
 
     Returns empty string for untimed codes — they are always 1 unit by CMS definition.
     """
     if not is_timed:
         return ""
+    minutes_str = f"{minutes} minutes" if minutes is not None else "the clinician-entered treatment time"
     return f"""
 ## Submitted Billing Units
-The clinician has submitted {units} unit(s) for CPT {code} (a timed code).
+The clinician has submitted {units} unit(s) for CPT {code} (a timed code), representing {minutes_str} of treatment time allocated to this service.
 
 Billing Unit Instructions:
-- Identify the documented service time for CPT {code} from the retrieved chart sections.
+- The clinician has allocated {minutes_str} to CPT {code}. Use this as the authoritative time for this service.
 - Apply the 8-minute rule: 8-22 min = 1 unit, 23-37 min = 2, 38-52 min = 3, 53-67 min = 4.
-- Compute the maximum supportable units from that documented time.
-- If submitted ({units}) < max supportable: add a 'medical_necessity' structured_bullet defending
-  why {units} unit(s) is appropriate (e.g., conservative billing, partial time attribution to this
-  code). Reference this defense explicitly in draft_paragraph.
-- If submitted ({units}) = max supportable: standard justification, no special defense needed.
-- If submitted ({units}) > max supportable: add a compliance warning stating submitted units exceed
-  what the documented service time supports and must be reviewed before submitting.
-- If service time for this code cannot be found in the retrieved sections: add a warning noting
-  that units could not be independently verified from the chart.
+- Per-code time is rarely documented separately in outpatient PT notes — do NOT warn or lower the score
+  because the note lacks an explicit "{minutes_str} for {code}" statement.
+- If submitted ({units}) ≤ max supportable for {minutes_str}: provide a standard, confident clinical
+  justification for {units} unit(s). Do NOT mention billing quantities, time-based comparisons, or
+  "conservative billing". Write as if {units} unit(s) over {minutes_str} is the natural billing.
+- Identify treatment activities in the note attributable to CPT {code} and cite them as the basis
+  for the {minutes_str} / {units} unit(s) allocation.
+- In the final draft_paragraph, you MUST include the phrase "{units} unit(s) based on {minutes_str}"
+  and reference at least one specific treatment activity from the note. Do not omit either.
 """
 
 
@@ -109,22 +117,48 @@ def _run_rag_for_code(
     note_text: str,
     client: anthropic.Anthropic,
     units: int | None = None,
+    minutes: int | None = None,
 ) -> dict[str, Any]:
     """Full per-code RAG pipeline: ingest → retrieve → prompt → parse."""
     cpt_def = _cpt_adapter.get_definition(code)
     resolved_label = label or cpt_def.get("label") or f"CPT {code}"
 
-    # Ingest note (idempotent)
-    if note_text and patient_id != "unknown-patient":
-        ingest_encounter(patient_id, encounter_id, note_text)
+    from scripts.ingest_patient_docs import ingest_encounter, retrieve_chunks, _parse_sections  # lazy
 
-    # Retrieve relevant chunks
-    query = f"{resolved_label}: {cpt_def.get('description', '')} {cpt_def.get('typical_indication', '')}"
-    chunks = retrieve_chunks(patient_id, encounter_id, query, n_results=5)
+    # Ingest note into vector index (idempotent; skip if no real patient ID or note)
+    _rag_error: str | None = None
+    if note_text and patient_id != "unknown-patient":
+        try:
+            ingest_encounter(patient_id, encounter_id, note_text)
+        except Exception as e:
+            _rag_error = str(e)
+
+    # Retrieve semantically relevant chunks
+    chunks: list[dict] = []
+    if not _rag_error:
+        query = f"{resolved_label}: {cpt_def.get('description', '')} {cpt_def.get('typical_indication', '')}"
+        try:
+            chunks = retrieve_chunks(patient_id, encounter_id, query, n_results=5)
+        except Exception:
+            pass
+
+    # Fallback: parse note_text into section chunks directly (no embeddings required)
+    if not chunks and note_text:
+        chunks = [
+            {"section": s["section"], "text": s["text"], "chunk_index": i, "distance": None}
+            for i, s in enumerate(_parse_sections(note_text))
+        ]
 
     rag_context = _build_rag_context(chunks, cpt_def)
     is_timed = cpt_def.get("timed", True)
-    unit_defense = _build_unit_defense_prompt(units, code, is_timed) if units is not None else ""
+
+    if units is not None and is_timed:
+        unit_defense = _build_unit_defense_prompt(units, code, is_timed, minutes=minutes)
+    elif minutes is not None and is_timed:
+        # Minutes entered but no explicit units submitted — still inject so output varies with minutes
+        unit_defense = f"\n## Clinician-Entered Treatment Time\nThe clinician entered {minutes} minutes of treatment time for CPT {code}. Reference this time allocation in the justification draft.\n"
+    else:
+        unit_defense = ""
 
     user_message = f"""## Code to Justify
 Code: {code}
