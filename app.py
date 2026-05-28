@@ -103,72 +103,20 @@ def _severity_color(score: float) -> str:
     return "#ef4444"
 
 
+from scripts.encounter_builders import (
+    build_minimal_package as _build_minimal_package_impl,
+    make_cpt_item as _make_cpt_item,
+    is_clinical_doc as _is_clinical_doc,
+)
+
+
 def _build_minimal_package(note_text: str) -> dict:
-    eid = st.session_state.encounter_id
-    did = f"doc-{eid}"
-    return {
-        "encounter_id": eid,
-        "date_of_service": date.today().isoformat(),
-        "patient_id": st.session_state.patient_id,
-        "clinician_id": st.session_state.clinician_id,
-        "source_documents": {
-            "uploaded_treatment_note": {
-                "document_id": did,
-                "file_name": "encounter_note.txt",
-                "uploaded_at": datetime.now(timezone.utc).isoformat(),
-                "parsed_text": note_text,
-            },
-            "backend_document_ids": [],
-        },
-        "suggested_treatments": [],
-        "chat_session": {
-            "session_id": f"session-{eid}",
-            "interaction_mode": "justification_help",
-            "messages": [],
-            "activity_log": [],
-        },
-        "final_output_document": {
-            "document_id": f"output-{eid}",
-            "sections": [],
-            "all_required_fields_complete": False,
-        },
-        "submission_state": {"status": "draft"},
-    }
-
-
-def _make_cpt_item(ranked: dict, idx: int, diagnoses: list[dict]) -> dict:
-    return {
-        "id": f"cpt-{idx}-{uuid.uuid4().hex[:4]}",
-        "selected": True,
-        "code": ranked.get("code", ""),
-        "modifier": ranked.get("modifier", "GP"),
-        "label": ranked.get("label", ""),
-        "units": int(ranked.get("units", 1)),
-        "minutes": 0,
-        "dx_pointer": ranked.get("diagnosis_pointer") or _pointer_from_codes(
-            ranked.get("diagnosis_codes", []), diagnoses
-        ),
-        "justification": ranked.get("justification", ""),
-        "supportability_score": float(ranked.get("supportability_score", 0)),
-        "compliance_warning": ranked.get("compliance_warning"),
-        "supporting_docs": ranked.get("supporting_docs", []),
-        "missing_elements": ranked.get("missing_elements", []),
-        "evidence_summary": ranked.get("evidence_summary", ""),
-        "auto_fill_notes": ranked.get("auto_fill_notes", []),
-    }
-
-
-_ADMIN_DOC_TERMS = {
-    "prior authorization", "prior auth", "insurance", "referral number",
-    "auth number", "coverage", "benefit", "copay", "deductible", "network",
-    "billing", "authorization", "payer", "claim number",
-}
-
-
-def _is_clinical_doc(requirement: str) -> bool:
-    """Return True when the requirement is a clinical documentation item, not an admin/billing one."""
-    req_lower = requirement.lower()
-    return not any(term in req_lower for term in _ADMIN_DOC_TERMS)
+    return _build_minimal_package_impl(
+        note_text=note_text,
+        encounter_id=st.session_state.encounter_id,
+        clinician_id=st.session_state.clinician_id,
+        patient_id=st.session_state.patient_id,
+    )
 
 
 def _active_items() -> list[dict]:
@@ -201,76 +149,18 @@ def _read_widget_edits() -> None:
 
 
 def _generate_output_doc() -> str:
+    from scripts.claim_builder import build_cms1500_text
     _read_widget_edits()
-    items = _active_items()
-    diagnoses = st.session_state.diagnoses
-    eid = st.session_state.encounter_id
-    today = date.today().isoformat()
-
-    lines = [
-        "=" * 60,
-        "  HEALTHCARE CLAIM SUPPORT PACKAGE",
-        "  CMS-1500 Ready — Clinician Reviewed",
-        "=" * 60,
-        f"Encounter ID    : {eid}",
-        f"Date of Service : {today}",
-        f"Patient         : {st.session_state.patient_name or st.session_state.patient_id}",
-        f"Date of Birth   : {st.session_state.dob or 'N/A'}",
-        f"Clinician       : {st.session_state.clinician_id}",
-        "",
-        "─" * 60,
-        "BOX 21 — DIAGNOSIS CODES",
-        "─" * 60,
-    ]
-    for i, dx in enumerate(diagnoses):
-        lines.append(f"  {_pointer(i)}.  {dx['code']}  —  {dx.get('label', '')}")
-
-    lines += ["", "─" * 60, "BOX 24 — SERVICE LINE ITEMS", "─" * 60]
-    for ln, item in enumerate(items, 1):
-        lines += [
-            f"\nLine {ln}",
-            f"  24D. CPT Code : {item['code']}    Modifier : {item['modifier']}",
-            f"  24E. Dx Ptr   : {item['dx_pointer']}",
-            f"  24G. Units    : {item['units']}",
-            f"  Desc          : {item['label']}",
-            "",
-            "  Justification:",
-        ]
-        for para in (item.get("justification") or "").split("\n"):
-            lines.append(f"    {para}")
-
-        present = [d for d in item.get("supporting_docs", []) if d.get("present")]
-        missing = [d for d in item.get("supporting_docs", []) if not d.get("present")]
-        if present or missing:
-            lines.append("\n  Supporting Documentation:")
-            for d in present:
-                lines.append(f"    ✅  {d['requirement']}")
-            for d in missing:
-                lines.append(f"    ❌  {d['requirement']} — MISSING")
-
-        if item.get("compliance_warning"):
-            lines.append(f"\n  ⚠  COMPLIANCE: {item['compliance_warning']}")
-        lines.append("")
-
-    lines += [
-        "─" * 60,
-        "COMPLIANCE SUMMARY",
-        "─" * 60,
-    ]
-    warnings = [item.get("compliance_warning") for item in items if item.get("compliance_warning")]
-    if warnings:
-        for w in warnings:
-            lines.append(f"  ⚠  {w}")
-    else:
-        lines.append("  No compliance warnings.")
-
-    lines += [
-        "",
-        "─" * 60,
-        f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')} | Review required before submission.",
-        "=" * 60,
-    ]
-    return "\n".join(lines)
+    return build_cms1500_text(
+        encounter_id=st.session_state.encounter_id,
+        date_of_service=date.today().isoformat(),
+        patient_name=st.session_state.patient_name,
+        dob=st.session_state.dob,
+        patient_id=st.session_state.patient_id,
+        clinician_id=st.session_state.clinician_id,
+        diagnoses=st.session_state.diagnoses,
+        items=_active_items(),
+    )
 
 
 # ── Sidebar ────────────────────────────────────────────────────────────────────
@@ -366,10 +256,8 @@ if st.session_state.stage == "upload":
 
                 # Seed diagnosis list — will be refined by rank_codes output in edit stage
                 cond = ev.get("patient_condition", "")
-                # Look for an ICD code mentioned in the note text (e.g. "M17.11")
-                import re
-                icd_matches = re.findall(r'\b([A-Z]\d{2}\.?\d*)\b', note_text)
-                icd_seed = icd_matches[0] if icd_matches else "See note"
+                seeds = ev.get("seed_icd_codes") or []
+                icd_seed = seeds[0] if seeds else "See note"
                 st.session_state.diagnoses = [
                     {"code": icd_seed, "label": cond[:80] if cond else "", "pointer": "A"}
                 ]
@@ -436,71 +324,23 @@ elif st.session_state.stage == "edit":
 
     # ── First-time processing ────────────────────────────────────────────────
     if not st.session_state.processing_done:
-        import concurrent.futures
         mode = st.session_state.mode
-        ev = st.session_state.evidence
-        diagnoses = st.session_state.diagnoses
-
         progress = st.status("Generating coding recommendations...", expanded=True)
         try:
             with progress:
-                from scripts.rank_codes import rank_codes_with_justifications, rank_codes
-                from scripts.detect_gaps import detect_gaps
-                from scripts.generate_justification import generate_per_code_justifications
-
-                if mode in ("both", "justification"):
-                    # ── Optimized path: combined codes+justifications call in parallel
-                    # with detect_gaps (cuts 3 sequential calls → 2 parallel) ──────
-                    st.write("🏷️ Ranking codes & writing justifications (parallel with gap detection)...")
-
-                    def _run_combined():
-                        return rank_codes_with_justifications(ev)
-
-                    def _run_gaps_no_codes():
-                        # detect_gaps works fine with empty ranked list for initial gap scan
-                        return detect_gaps(ev, [])
-
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-                        f_combined = executor.submit(_run_combined)
-                        f_gaps = executor.submit(_run_gaps_no_codes)
-                        ranked = f_combined.result()
-                        gaps = f_gaps.result()
-
-                else:
-                    # codes-only mode: rank codes + detect gaps in parallel
-                    st.write("🏷️ Ranking CPT codes (parallel with gap detection)...")
-
-                    def _run_rank():
-                        return rank_codes(ev)
-
-                    def _run_gaps_no_codes():
-                        return detect_gaps(ev, [])
-
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-                        f_rank = executor.submit(_run_rank)
-                        f_gaps = executor.submit(_run_gaps_no_codes)
-                        ranked = f_rank.result()
-                        gaps = f_gaps.result()
-
-                # Pull ICD codes from ranked output and update diagnoses
-                all_icd = []
-                for r in ranked:
-                    for c in r.get("diagnosis_codes", []):
-                        if c not in [d["code"] for d in all_icd]:
-                            all_icd.append({"code": c, "label": "", "pointer": _pointer(len(all_icd))})
-                if all_icd:
-                    st.session_state.diagnoses = all_icd
-                    diagnoses = all_icd
-
-                items = [_make_cpt_item(r, i, diagnoses) for i, r in enumerate(ranked)]
-
-                # For combined mode, justification is already embedded in ranked items
-                if mode in ("both", "justification"):
-                    for item, r in zip(items, ranked):
-                        if not item.get("justification"):
-                            item["justification"] = r.get("justification", "")
-
-                st.session_state.cpt_items = items
+                from scripts.pipeline import run_initial_screening
+                st.write(
+                    "🏷️ Ranking codes & writing justifications (parallel with gap detection)..."
+                    if mode in ("both", "justification")
+                    else "🏷️ Ranking CPT codes (parallel with gap detection)..."
+                )
+                result = run_initial_screening(
+                    mode=mode,
+                    evidence=st.session_state.evidence,
+                    diagnoses=st.session_state.diagnoses,
+                )
+                st.session_state.diagnoses = result["diagnoses"]
+                st.session_state.cpt_items = result["items"]
                 st.session_state.deleted_ids = set()
                 st.session_state.processing_done = True
                 progress.update(label="Ready — review and edit below", state="complete")
@@ -692,7 +532,10 @@ elif st.session_state.stage == "edit":
                 else:
                     if st.button("⚡ Generate", key=f"gen_{iid}",
                                  help="AI-generate justification, modifier, units, and dx pointer for this code"):
-                        from scripts.rag_justification import evaluate_single_code as rag_evaluate_single_code
+                        from scripts.rag_justification import (
+                            evaluate_single_code as rag_evaluate_single_code,
+                            normalize_evaluation_result,
+                        )
 
                         try:
                             with st.spinner("Generating recommendation..."):
@@ -707,32 +550,15 @@ elif st.session_state.stage == "edit":
                                     encounter_id=st.session_state.get("encounter_id") or None,
                                 )
 
-                            # Update all item fields — coerce every field to a safe non-None value
-                            item["code"] = str(matched.get("code") or current_code).strip()
-                            item["label"] = str(matched.get("label") or item.get("label") or f"CPT {current_code}").strip()
-                            item["modifier"] = str(matched.get("modifier") or "GP").strip()
-                            item["dx_pointer"] = str(matched.get("diagnosis_pointer") or item.get("dx_pointer") or "A").strip()
-                            item["justification"] = str(matched.get("justification") or matched.get("draft_paragraph") or "").strip()
-                            item["supportability_score"] = float(matched.get("supportability_score") or 0)
-                            item["compliance_warning"] = matched.get("compliance_warning") or (
-                                matched.get("warnings", [None])[0] if matched.get("warnings") else None
+                            normalized, new_icds = normalize_evaluation_result(
+                                matched,
+                                current_code=current_code,
+                                existing_item=item,
+                                existing_diagnoses=st.session_state.diagnoses,
                             )
-                            item["supporting_docs"] = matched.get("supporting_docs") or []
-                            item["missing_elements"] = matched.get("missing_elements") or []
-                            item["evidence_summary"] = str(matched.get("evidence_summary") or "").strip()
-                            item["auto_fill_notes"] = []
+                            item.update(normalized)
+                            st.session_state.diagnoses.extend(new_icds)
 
-                            # Merge any new ICD codes returned by the AI into session state diagnoses
-                            existing_codes = {d["code"] for d in st.session_state.diagnoses}
-                            for icd in matched.get("diagnosis_codes") or []:
-                                if icd not in existing_codes:
-                                    st.session_state.diagnoses.append(
-                                        {"code": icd, "label": "", "pointer": _pointer(len(st.session_state.diagnoses))}
-                                    )
-                                    existing_codes.add(icd)
-
-                            # Queue widget updates for the next run — cannot set widget session
-                            # state keys after the widget has already been instantiated this run.
                             st.session_state["_pending_widget_updates"] = {
                                 f"w_code_{iid}": item["code"],
                                 f"w_mod_{iid}": item["modifier"],

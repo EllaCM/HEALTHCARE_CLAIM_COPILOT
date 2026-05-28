@@ -2,12 +2,10 @@
 """CLI entry point: run the full claim copilot pipeline on a plain-text encounter note."""
 
 import argparse
-import json
 import os
 import pathlib
 import sys
 import uuid
-from datetime import date, datetime, timezone
 
 from dotenv import load_dotenv
 
@@ -15,39 +13,8 @@ load_dotenv()
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 
+from scripts.encounter_builders import build_minimal_package
 from src.orchestrator import run_pipeline
-
-
-def build_minimal_package(note_text: str, encounter_id: str, clinician_id: str, patient_id: str) -> dict:
-    doc_id = f"doc-{encounter_id}"
-    return {
-        "encounter_id": encounter_id,
-        "date_of_service": date.today().isoformat(),
-        "patient_id": patient_id,
-        "clinician_id": clinician_id,
-        "source_documents": {
-            "uploaded_treatment_note": {
-                "document_id": doc_id,
-                "file_name": "encounter_note.txt",
-                "uploaded_at": datetime.now(timezone.utc).isoformat(),
-                "parsed_text": note_text,
-            },
-            "backend_document_ids": [],
-        },
-        "suggested_treatments": [],
-        "chat_session": {
-            "session_id": f"session-{encounter_id}",
-            "interaction_mode": "justification_help",
-            "messages": [],
-            "activity_log": [],
-        },
-        "final_output_document": {
-            "document_id": f"output-{encounter_id}",
-            "sections": [],
-            "all_required_fields_complete": False,
-        },
-        "submission_state": {"status": "draft"},
-    }
 
 
 def main() -> None:
@@ -69,7 +36,12 @@ def main() -> None:
 
     note_text = note_path.read_text()
     encounter_id = args.encounter_id or f"enc-{uuid.uuid4().hex[:8]}"
-    package = build_minimal_package(note_text, encounter_id, args.clinician_id, args.patient_id)
+    package = build_minimal_package(
+        note_text=note_text,
+        encounter_id=encounter_id,
+        clinician_id=args.clinician_id,
+        patient_id=args.patient_id,
+    )
 
     print(f"\n=== Healthcare Claim Copilot ===")
     print(f"Encounter ID : {encounter_id}")

@@ -143,6 +143,51 @@ def evaluate_single_code(
     return _run_rag_for_code(evidence, code, label, None, pid, eid, note, _get_client(), units=units, minutes=minutes)
 
 
+def normalize_evaluation_result(
+    matched: dict[str, Any],
+    *,
+    current_code: str,
+    existing_item: dict[str, Any],
+    existing_diagnoses: list[dict[str, Any]],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Coerce a raw `evaluate_single_code` result into a UI-safe CPT item.
+
+    Returns (normalized_item_fields, new_icds_to_append). Pure function:
+    does not mutate inputs. Caller is responsible for merging fields back
+    into its item dict and appending the returned diagnoses.
+    """
+    normalized = {
+        "code": str(matched.get("code") or current_code).strip(),
+        "label": str(matched.get("label") or existing_item.get("label") or f"CPT {current_code}").strip(),
+        "modifier": str(matched.get("modifier") or "GP").strip(),
+        "dx_pointer": str(
+            matched.get("diagnosis_pointer") or existing_item.get("dx_pointer") or "A"
+        ).strip(),
+        "justification": str(
+            matched.get("justification") or matched.get("draft_paragraph") or ""
+        ).strip(),
+        "supportability_score": float(matched.get("supportability_score") or 0),
+        "compliance_warning": matched.get("compliance_warning") or (
+            matched.get("warnings", [None])[0] if matched.get("warnings") else None
+        ),
+        "supporting_docs": matched.get("supporting_docs") or [],
+        "missing_elements": matched.get("missing_elements") or [],
+        "evidence_summary": str(matched.get("evidence_summary") or "").strip(),
+        "auto_fill_notes": [],
+    }
+
+    existing_codes = {d["code"] for d in existing_diagnoses}
+    new_icds: list[dict[str, Any]] = []
+    next_idx = len(existing_diagnoses)
+    for icd in matched.get("diagnosis_codes") or []:
+        if icd not in existing_codes:
+            new_icds.append({"code": icd, "label": "", "pointer": chr(65 + next_idx)})
+            existing_codes.add(icd)
+            next_idx += 1
+
+    return normalized, new_icds
+
+
 if __name__ == "__main__":
     import json
 

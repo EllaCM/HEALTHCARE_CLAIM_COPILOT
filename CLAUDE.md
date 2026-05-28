@@ -96,6 +96,7 @@ Make the orchestrator block final draft generation when evidence is too weak, ra
 - prioritize edit on top of existing files instead of rewriting the entire file
 - unless the file has been edited, do not repeatedly read the files that have been read.
 - concise output, thorough logic
+- zero business logic lives in Streamlit callbacks. Every function that calls Claude, queries ChromaDB, validates a CPT code, or evaluates note quality should live in a Python module that is importable independently of Streamlit.
 
 ## Coding requirements
 - each file should not exceed 400 lines. if so, break it down into seperate files.

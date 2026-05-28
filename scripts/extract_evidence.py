@@ -1,4 +1,12 @@
-"""Extract structured evidence sections from raw encounter inputs via the Claude API."""
+"""Extract structured evidence sections from raw encounter inputs via the Claude API.
+
+Note on `seed_icd_codes`: the returned dict carries a deterministic regex
+extraction of ICD-10-style codes from the raw note (e.g. "M17.11"). This
+key is additive — it is intentionally not declared in
+`schemas/encounter_package.schema.json` because the evidence dict is
+stored under the underscore-prefixed `_evidence` key that
+`src/orchestrator.py:_serializable` strips before persistence.
+"""
 
 import json
 import os
@@ -7,6 +15,23 @@ import sys
 from typing import Any
 
 import anthropic
+
+_ICD_SEED_PATTERN = re.compile(r'\b([A-Z]\d{2}\.?\d*)\b')
+
+
+def _extract_seed_icd_codes(note_text: str) -> list[str]:
+    """Deterministically pull ICD-10-style code tokens out of a free-text note.
+
+    Returns unique codes in document order. Used by the UI to seed the
+    diagnosis list before the ranking agent runs.
+    """
+    seen: set[str] = set()
+    out: list[str] = []
+    for m in _ICD_SEED_PATTERN.findall(note_text or ""):
+        if m not in seen:
+            seen.add(m)
+            out.append(m)
+    return out
 
 _client: anthropic.Anthropic | None = None
 
@@ -131,6 +156,7 @@ Field notes:
     result = _parse_json(response.content[0].text)
     if not result.get("session_duration_minutes"):
         result["session_duration_minutes"] = _extract_duration_regex(encounter_note)
+    result["seed_icd_codes"] = _extract_seed_icd_codes(encounter_note)
     return result
 
 

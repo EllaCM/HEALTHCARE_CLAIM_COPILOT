@@ -8,7 +8,7 @@ Covers four scenarios for a given encounter note:
 
 Usage:
     python tests/test_justification_with_units.py
-    python tests/test_justification_with_units.py --encounter smoke-lbp --cpt 97110 --minutes 15
+    
     python tests/test_justification_with_units.py --encounter smoke-lbp --cpt 97110 --minutes 30 --units 3
     python tests/test_justification_with_units.py --all
 """
