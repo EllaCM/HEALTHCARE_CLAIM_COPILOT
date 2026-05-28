@@ -1,0 +1,136 @@
+Marketing Video Generation Log
+
+  ---                                                                                                            
+  Demo Video Generation Prompt
+                                                                                                                 
+  Format: Screen recording walkthrough, 2–3 minutes, no narration required (on-screen actions speak for
+  themselves). Capture at 1440p if possible.                                                                     
+                  
+  ---                                                                                                            
+  Scene 1 — Upload & Evidence Extraction (0:00–0:30)
+                                                                                                                 
+  Open the app. In the sidebar, confirm patient name, DOB, and clinician are filled. Paste or upload a realistic
+  outpatient therapy note that includes:                                                                         
+  - A 60-minute session (explicitly stated, e.g. "Session time: 10:00 AM – 11:00 AM")
+  - At least 3 timed CPT codes mentioned (e.g. 97110, 97530, 97140)                                              
+  - One evaluation code (e.g. 97161)                               
+                                                                                                                 
+  Click Screen Note. Let the spinner run to completion. Advance to the edit stage.                               
+                                                                                                                 
+  ---                                                                                                            
+  Scene 2 — Auto-Calculated Time Units (0:30–1:10) [Feature 1]                                                   
+                                                                                                                 
+  Pan to the billing header bar at the top of the edit stage. Highlight two values:
+  - Total session minutes (auto-extracted from the note, e.g. "60 min")                                          
+  - Max billable units available given that session duration                                                     
+                                                                                                                 
+  For one timed code (e.g. 97110), type 22 into the Tx Min field. Watch the units badge update live (e.g. → 2    
+  units). Then type 7 — show the badge turn red with "0 units (< 8 min)". Type 15 to restore a valid value.      
+   
+  ▎ If session start/end times were in the note, show the header pulling "10:00 AM – 11:00 AM → 60 min" directly.
+                  
+  ---                                                                                                            
+  Scene 3 — Time Allocation Across Codes (1:10–1:50) [Feature 2]
+                                                                                                                 
+  With 60 minutes total available, fill in minutes for each timed code one by one:
+  - 97110 → 20 min (2 units)                                                                                     
+  - 97530 → 22 min (2 units)
+  - 97140 → 15 min (1 unit)                                                                                      
+                                                                                                                 
+  Watch the allocated minutes counter in the billing header update after each entry (e.g. "57 / 60 min used").
+  Intentionally over-allocate — type 30 for 97140 — and show the warning state trigger ("exceeds session time"). 
+  Correct it back to 15.
+                                                                                                                 
+  Click Generate Justification on one code. Show the AI draft appear inline, grounded in the note text. Mark the 
+  code as reviewed.
+                                                                                                                 
+  ---             
+  Scene 4 — Final Claim Review & Handoff (1:50–2:30) [Feature 3]
+                                                                                                                 
+  After all codes are reviewed, click Proceed to Review. The stage badge in the sidebar switches to Review.
+                                                                                                                 
+  Scroll through the confirm page:
+  - Each CPT line expanded: code, modifier, units, minutes, diagnosis pointer, justification text                
+  - Any compliance warning highlighted in amber                                                                  
+  - ICD-10 diagnosis list visible              
+                                                                                                                 
+  Click Download CMS-1500 Draft — show the .txt file generate. End on the "Submit to Billing Team" button (or the
+   download confirmation), leaving it un-clicked to signal human-in-the-loop handoff.                            
+                                                                                                                 
+  ---                                                                                                            
+  Recording notes 
+  Click Generate Justification on one code. Show the AI draft appear inline, grounded in the note text. Mark the
+  code as reviewed.
+  code as reviewed.
+
+  ---
+  Scene 4 — Final Claim Review & Handoff (1:50–2:30) [Feature 3]
+
+  After all codes are reviewed, click Proceed to Review. The stage badge in the sidebar switches to Review.
+
+  Scroll through the confirm page:
+  - Each CPT line expanded: code, modifier, units, minutes, diagnosis pointer, justification text
+  - Any compliance warning highlighted in amber
+  - ICD-10 diagnosis list visible
+
+  Click Download CMS-1500 Draft — show the .txt file generate. End on the "Submit to Billing Team" button (or the
+   download confirmation), leaving it un-clicked to signal human-in-the-loop handoff.
+
+  ---
+  Recording notes
+
+  - Use the sidebar stage badge as a visual chapter marker (blue = Upload, green = Editing, yellow = Review)
+  - Keep mouse movements deliberate — pause 1–2 seconds on each key number before moving on
+  - The billing header is the hero moment for Features 1 & 2; zoom or highlight it with a screen annotation if
+  possible
+  - No synthetic data — use a note realistic enough that the AI extraction produces plausible codes
+
+
+
+2026-05-06
+Issue: When adding a new code with Tx Min value input   
+  that makes sense, there is no justification content    
+  generated after hitting "Generate". 
+  
+The empty justification has a different, deeper root cause. Here's the   
+  flow:                                                                                   
+                                                                                          
+  Generate click (app.py)                                                                 
+  │                                                                                       
+  │  evaluate_single_code(evidence, code, units=N, minutes=M)                             
+  │  ← note_text NOT passed → defaults to ""                                              
+  │                                                                                       
+  ▼                                                                                       
+  _run_rag_for_code()                                                                     
+  │                                                                                       
+  ├─ 1. CPT lookup ──── LOCAL YAML ─────────────────── ✅ always works                    
+  │                                                                                       
+  ├─ 2. Ingest note to ChromaDB                                                           
+  │      condition: patient_id != "unknown-patient" AND note_text non-empty               
+  │      patient_id = "unknown-patient" (not passed from app.py)                          
+  │      note_text  = ""               (not passed from app.py)                           
+  │      → SKIPPED ❌                                                                     
+  │                                                                                       
+  ├─ 3. retrieve_chunks("unknown-patient", ...)         
+  │      → no data exists for this patient → returns [] ❌                                
+  │
+  ├─ 4. _build_rag_context(chunks=[], cpt_def)                                            
+  │      → only CPT definition block, no note sections ❌
+  │
+  └─ 5. LLM call
+         system prompt: "If retrieved context lacks support, set draft_paragraph to null" 
+         LLM sees empty Retrieved Chart Sections → returns null ❌
+                                                                                          
+  app.py: item["justification"] = matched.get("draft_paragraph") or "" → "" (empty)       
+                                                                                          
+  Root cause: app.py never passes note_text to evaluate_single_code, so the note is never 
+  ingested and retrieval always returns [].             
+                                                                                          
+  Two-part fix:                                         
+
+  1. app.py — pass note_text=st.session_state.note_text (and a stable encounter ID) to    
+  rag_evaluate_single_code
+  2. _run_rag_for_code — when retrieve_chunks returns [] but note_text is available, fall 
+  back to _parse_sections(note_text) (already exists in ingest_patient_docs.py) as        
+  pseudo-chunks. This bypasses vector search entirely and always gives the LLM actual note
+   content                                                           
